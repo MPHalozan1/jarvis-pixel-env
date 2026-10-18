@@ -1,0 +1,40 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.buildlog/
+.history
+.svn/
+migrate_working_dir/
+
+# IntelliJ / VS Code
+*.iml
+*.ipr
+*.iws
+.idea/
+.vscode/
+
+# Flutter / Dart / Pub
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-preload-cache/
+.pub/
+/build/
+
+# Linux & Windows Desktop Ephemeral Files
+linux/flutter/ephemeral/
+windows/flutter/ephemeral/
+
+# Environment & Local Secrets
+.env
+.env.*
+*.key
+*.pem
+secrets.json
