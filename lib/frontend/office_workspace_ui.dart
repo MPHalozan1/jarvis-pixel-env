@@ -6,10 +6,12 @@ import 'connections_window.dart';
 import 'pixel_art_engine.dart';
 
 //**********************************************************************
-// JARVIS PIXEL ENV FRONT-END // SLEEK CONTROL DECK + PIXEL OFFICE     *
-// Surrounding UI styled after the Neon Pink & Cyan Control Deck:      *
-// - Sleek Navy Cards (#181C2E), Pill Buttons, Sparkline Telemetry     *
-// - Center Canvas remains a crisp 16-bit 2D RPG Pixel Office          *
+// JARVIS PIXEL ENV FRONT-END // WORKFLOW WIZARD & LIVE CODE GRAPH     *
+// Features:                                                           *
+// - Top-Right "Start New Workflow" Button & Project Source Modal      *
+//   (Choose Local Folder OR Git Repo -> clones to ~/Desktop/projects) *
+// - 3.1 Pro Work Plan Confirmation Banner (or auto-confirms @ Argon)  *
+// - Live Bottom-Left Graph tracking +Lines Added, -Deleted & !Errors  *
 //**********************************************************************
 
 class OfficeWorkspaceScreen extends StatefulWidget {
@@ -34,10 +36,21 @@ class _OfficeWorkspaceScreenState extends State<OfficeWorkspaceScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _loopController;
   final TransformationController _cameraController = TransformationController();
-  final TextEditingController _taskInputController = TextEditingController();
   final TextEditingController _interceptController = TextEditingController();
 
-  int _selectedAgentId = 1;
+  // Start New Workflow Modal State
+  bool _showNewWorkflowModal = false;
+  bool _workflowUseGitRepo = true; // true = Git Repo -> ~/Desktop/projects, false = Local Folder
+  String _selectedLocalFolder = '';
+  int _selectedRepoIndex = 0;
+  final TextEditingController _customGitUrlController = TextEditingController();
+  final TextEditingController _customLocalPathController =
+      TextEditingController();
+  final TextEditingController _workflowPromptController = TextEditingController(
+    text: 'Add live system telemetry widget & refactor backend socket handler',
+  );
+
+  int _selectedAgentId = 8; // Default inspect #8 (3.1 Pro Planner)
   String _activeTopTab = 'CTRL';
   bool _showConnectionsWindow = false;
   int _connectionsInitialTab = 0;
@@ -47,10 +60,17 @@ class _OfficeWorkspaceScreenState extends State<OfficeWorkspaceScreen>
   static const Color _navyBorder = Color(0xFF2E3654);
   static const Color _neonPink = Color(0xFFF43F5E);
   static const Color _neonCyan = Color(0xFF00D2FF);
+  static const Color _neonPurple = Color(0xFFA855F7);
 
   @override
   void initState() {
     super.initState();
+    final folders = widget.connections.discoverLocalFolders();
+    if (folders.isNotEmpty) {
+      _selectedLocalFolder = folders.first;
+      _customLocalPathController.text = folders.first;
+    }
+
     _loopController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 3),
@@ -65,8 +85,10 @@ class _OfficeWorkspaceScreenState extends State<OfficeWorkspaceScreen>
   void dispose() {
     _loopController.dispose();
     _cameraController.dispose();
-    _taskInputController.dispose();
     _interceptController.dispose();
+    _customGitUrlController.dispose();
+    _customLocalPathController.dispose();
+    _workflowPromptController.dispose();
     super.dispose();
   }
 
@@ -84,6 +106,18 @@ class _OfficeWorkspaceScreenState extends State<OfficeWorkspaceScreen>
     _cameraController.value = Matrix4.identity()
       ..translateByDouble(dx, dy, 0.0, 1.0)
       ..scaleByDouble(scale, scale, 1.0, 1.0);
+  }
+
+  void _openStartWorkflowModal() {
+    final folders = widget.connections.discoverLocalFolders();
+    setState(() {
+      if (folders.isNotEmpty && _selectedLocalFolder.isEmpty) {
+        _selectedLocalFolder = folders.first;
+        _customLocalPathController.text = folders.first;
+      }
+      _showConnectionsWindow = false;
+      _showNewWorkflowModal = true;
+    });
   }
 
   @override
@@ -108,7 +142,7 @@ class _OfficeWorkspaceScreenState extends State<OfficeWorkspaceScreen>
           backgroundColor: bgColor,
           body: Column(
             children: [
-              // 1. SLEEK TOP NAVIGATION & DISPATCH DECK
+              // 1. SLEEK TOP HEADER WITH "START NEW WORKFLOW" BUTTON
               _buildSleekTopHeader(orch, isDark, borderColor),
 
               // 2. MAIN WORKSPACE
@@ -173,7 +207,19 @@ class _OfficeWorkspaceScreenState extends State<OfficeWorkspaceScreen>
                             ),
                           ),
 
-                        // VIP QUESTION BANNER
+                        // 3.1 PRO WORK PLAN CONFIRMATION BANNER (When Director is Available)
+                        if (orch.pendingWorkPlan != null &&
+                            orch.stage ==
+                                WorkflowStage.awaitingPlanConfirmation &&
+                            orch.isDirectorAvailable)
+                          Positioned(
+                            top: 14,
+                            left: 275,
+                            right: 375,
+                            child: _buildWorkPlanConfirmationBanner(orch),
+                          ),
+
+                        // MID-WORK QUESTION BANNER
                         if (orch.pendingQuestionForDirector != null &&
                             orch.isDirectorAvailable)
                           Positioned(
@@ -183,12 +229,12 @@ class _OfficeWorkspaceScreenState extends State<OfficeWorkspaceScreen>
                             child: _buildDirectorQuestionBanner(orch),
                           ),
 
-                        // LEFT SLEEK SQUAD HIERARCHY & OVERALL PROGRESS CARD
+                        // LEFT SLEEK SIDEBAR + LIVE CODE TELEMETRY GRAPH
                         Positioned(
                           left: 14,
                           top: 14,
                           bottom: 72,
-                          width: 250,
+                          width: 255,
                           child: _buildLeftSleekSidebar(
                             orch,
                             panelColor,
@@ -196,7 +242,7 @@ class _OfficeWorkspaceScreenState extends State<OfficeWorkspaceScreen>
                           ),
                         ),
 
-                        // RIGHT SLEEK INSPECTOR + SEGMENTED LED METERS
+                        // RIGHT SLEEK INSPECTOR
                         Positioned(
                           right: 14,
                           top: 14,
@@ -210,7 +256,13 @@ class _OfficeWorkspaceScreenState extends State<OfficeWorkspaceScreen>
                           ),
                         ),
 
-                        // SLEEK CONNECTIONS, MODELS, GITHUB & SLIDERS WINDOW
+                        // START NEW WORKFLOW WIZARD MODAL (LOCAL FOLDER OR GIT REPO)
+                        if (_showNewWorkflowModal)
+                          Center(
+                            child: _buildStartNewWorkflowModal(orch),
+                          ),
+
+                        // CONNECTIONS, MODELS, GITHUB & SLIDERS WINDOW
                         if (_showConnectionsWindow)
                           Center(
                             child: ConnectionsManagementWindow(
@@ -258,7 +310,7 @@ class _OfficeWorkspaceScreenState extends State<OfficeWorkspaceScreen>
   }
 
   //********************************************************************
-  // SLEEK TOP HEADER BAR                                              *
+  // SLEEK TOP HEADER BAR WITH "START NEW WORKFLOW" BUTTON             *
   //********************************************************************
   Widget _buildSleekTopHeader(
     OfficeOrchestrator orch,
@@ -341,6 +393,7 @@ class _OfficeWorkspaceScreenState extends State<OfficeWorkspaceScreen>
           // Sleek "Websites & GitHub Login" Button
           InkWell(
             onTap: () => setState(() {
+              _showNewWorkflowModal = false;
               _connectionsInitialTab = 0;
               _showConnectionsWindow = !_showConnectionsWindow;
             }),
@@ -348,14 +401,13 @@ class _OfficeWorkspaceScreenState extends State<OfficeWorkspaceScreen>
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFEC4899), Color(0xFFE11D48)],
-                ),
+                color: const Color(0xFF1F253D),
                 borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: _neonPink),
               ),
               child: const Row(
                 children: [
-                  Icon(Icons.person_outline, size: 15, color: Colors.white),
+                  Icon(Icons.person_outline, size: 15, color: _neonPink),
                   SizedBox(width: 6),
                   Text(
                     'Websites & GitHub Login',
@@ -372,55 +424,61 @@ class _OfficeWorkspaceScreenState extends State<OfficeWorkspaceScreen>
 
           const Spacer(),
 
-          // Task Input Field
-          SizedBox(
-            width: 240,
-            height: 34,
-            child: TextField(
-              controller: _taskInputController,
-              onSubmitted: (v) {
-                orch.dispatchMission(v);
-                _taskInputController.clear();
-              },
-              style: const TextStyle(fontSize: 12),
-              decoration: InputDecoration(
-                hintText: 'Dispatch task to 3.8 Flash...',
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-                filled: true,
-                fillColor: isDark
-                    ? const Color(0xFF1B2035)
-                    : const Color(0xFFF1F5F9),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(18),
-                  borderSide: BorderSide(color: borderColor),
+          // Active Workspace Pill
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1B2035),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: borderColor),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.folder_open, size: 14, color: _neonCyan),
+                const SizedBox(width: 6),
+                Text(
+                  'Project: ${orch.sshProjectPath.split('/').last}  •  Stage: ${orch.stage.name}',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Color(0xFFCBD5E1),
+                  ),
                 ),
-              ),
+              ],
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 12),
 
-          // Cyan Pill "Dispatch" Button
+          // Prominent Top-Right "Start New Workflow" Button
           InkWell(
-            onTap: () {
-              orch.dispatchMission(_taskInputController.text);
-              _taskInputController.clear();
-            },
-            borderRadius: BorderRadius.circular(20),
+            onTap: _openStartWorkflowModal,
+            borderRadius: BorderRadius.circular(22),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
-                  colors: [Color(0xFF00D2FF), Color(0xFF0284C7)],
+                  colors: [Color(0xFF00D2FF), Color(0xFFEC4899)],
                 ),
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(22),
+                boxShadow: [
+                  BoxShadow(
+                    color: _neonCyan.withValues(alpha: 0.35),
+                    blurRadius: 12,
+                  ),
+                ],
               ),
-              child: const Text(
-                'Dispatch',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                ),
+              child: const Row(
+                children: [
+                  Icon(Icons.rocket_launch, size: 15, color: Colors.white),
+                  SizedBox(width: 8),
+                  Text(
+                    'Start New Workflow',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -430,16 +488,529 @@ class _OfficeWorkspaceScreenState extends State<OfficeWorkspaceScreen>
   }
 
   //********************************************************************
-  // LEFT SLEEK SIDEBAR: SQUAD MENU + OVERALL PROGRESS SPARKLINE CARD  *
+  // START NEW WORKFLOW MODAL (CHOOSE LOCAL FOLDER OR GIT REPO)        *
+  //********************************************************************
+  Widget _buildStartNewWorkflowModal(OfficeOrchestrator orch) {
+    final conn = widget.connections;
+    final localFolders = conn.discoverLocalFolders();
+    final planner = orch.agents[7]; // #8 3.1 Pro
+    final confirmer =
+        orch.isDirectorAvailable ? 'YOU (VIP Suite)' : orch.agents[6].name;
+
+    return Container(
+      width: 680,
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: const Color(0xFF171B2D).withValues(alpha: 0.98),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _neonCyan, width: 1.8),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.7),
+            blurRadius: 36,
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: _neonCyan.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.rocket_launch,
+                  color: _neonCyan,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Start New Workflow',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                      ),
+                    ),
+                    Text(
+                      '1. Choose Local Folder or Git Repo (~/Desktop/projects)  ->  2. 3.1 Pro Scans & Plans  ->  3. Plan Confirmed',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontStyle: FontStyle.italic,
+                        color: Color(0xFF94A3B8),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                onPressed: () => setState(() => _showNewWorkflowModal = false),
+                icon: const Icon(Icons.close, color: _neonPink),
+              ),
+            ],
+          ),
+          const Divider(height: 24, color: _navyBorder),
+
+          // Step 1: Choose Project Source Toggle (Git Repo vs Local Folder)
+          const Text(
+            'STEP 1 // CHOOSE PROJECT SOURCE',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              color: _neonCyan,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: InkWell(
+                  onTap: () => setState(() => _workflowUseGitRepo = true),
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 11,
+                      horizontal: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _workflowUseGitRepo
+                          ? _neonPink.withValues(alpha: 0.2)
+                          : const Color(0xFF1F253D),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: _workflowUseGitRepo ? _neonPink : _navyBorder,
+                        width: 1.5,
+                      ),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.cloud_download, size: 17, color: _neonPink),
+                        SizedBox(width: 8),
+                        Text(
+                          'Git Repository (Clones to ~/Desktop/projects)',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: InkWell(
+                  onTap: () => setState(() => _workflowUseGitRepo = false),
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 11,
+                      horizontal: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: !_workflowUseGitRepo
+                          ? _neonCyan.withValues(alpha: 0.2)
+                          : const Color(0xFF1F253D),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: !_workflowUseGitRepo ? _neonCyan : _navyBorder,
+                        width: 1.5,
+                      ),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.folder_copy, size: 17, color: _neonCyan),
+                        SizedBox(width: 8),
+                        Text(
+                          'Local Folder on PC',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // Source Selection Area
+          if (_workflowUseGitRepo) ...[
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<int>(
+                    key: ValueKey('wf_repo_$_selectedRepoIndex'),
+                    initialValue:
+                        _selectedRepoIndex < conn.repositories.length
+                            ? _selectedRepoIndex
+                            : 0,
+                    isExpanded: true,
+                    isDense: true,
+                    decoration: InputDecoration(
+                      labelText:
+                          'Select GitHub Repo (Target: ~/Desktop/projects/<repo>)',
+                      filled: true,
+                      fillColor: const Color(0xFF131726),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    items: List.generate(conn.repositories.length, (idx) {
+                      final r = conn.repositories[idx];
+                      return DropdownMenuItem(
+                        value: idx,
+                        child: Text(
+                          '${r.fullName} (${r.defaultBranch})',
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      );
+                    }),
+                    onChanged: (val) {
+                      if (val != null) {
+                        setState(() => _selectedRepoIndex = val);
+                      }
+                    },
+                  ),
+                ),
+                const SizedBox(width: 10),
+                InkWell(
+                  onTap: () => conn.connectAndFetchGithubRepos(
+                    username: conn.githubUsername,
+                    token: conn.githubToken,
+                  ),
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1F253D),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: _neonCyan),
+                    ),
+                    child: Text(
+                      conn.isFetchingRepos ? 'Syncing...' : 'Refresh Repos',
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _customGitUrlController,
+              style: const TextStyle(fontSize: 12),
+              decoration: InputDecoration(
+                labelText:
+                    'Or paste any Git Repo URL to clone into ~/Desktop/projects',
+                hintText: 'https://github.com/MPHalozan1/jarvis-pixel-env.git',
+                isDense: true,
+                filled: true,
+                fillColor: const Color(0xFF131726),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ] else ...[
+            DropdownButtonFormField<String>(
+              key: ValueKey('wf_local_$_selectedLocalFolder'),
+              initialValue: localFolders.contains(_selectedLocalFolder)
+                  ? _selectedLocalFolder
+                  : localFolders.first,
+              isExpanded: true,
+              isDense: true,
+              decoration: InputDecoration(
+                labelText: 'Discovered Local Folders (~/Projects & ~/Desktop/projects)',
+                filled: true,
+                fillColor: const Color(0xFF131726),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              items: localFolders
+                  .map(
+                    (f) => DropdownMenuItem(
+                      value: f,
+                      child: Text(
+                        f,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (val) {
+                if (val != null) {
+                  setState(() {
+                    _selectedLocalFolder = val;
+                    _customLocalPathController.text = val;
+                  });
+                }
+              },
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _customLocalPathController,
+              style: const TextStyle(fontSize: 12),
+              decoration: InputDecoration(
+                labelText: 'Custom Local Folder Path',
+                isDense: true,
+                filled: true,
+                fillColor: const Color(0xFF131726),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 16),
+
+          // Step 2: Task Request for 3.1 Pro Work Planner
+          Text(
+            'STEP 2 // REQUEST FOR ${planner.name.toUpperCase()} (${planner.modelName})',
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              color: _neonPink,
+            ),
+          ),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _workflowPromptController,
+            maxLines: 2,
+            style: const TextStyle(fontSize: 12.5),
+            decoration: InputDecoration(
+              hintText:
+                  'Describe what you want built or fixed. 3.1 Pro will scan the files and create a Work Plan...',
+              filled: true,
+              fillColor: const Color(0xFF131726),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Workflow Route Preview Box
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1F253D),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: _navyBorder),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.route, size: 16, color: _neonCyan),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Pipeline: ${planner.name} scans files & builds plan  ->  Confirms plan with $confirmer  ->  #1 & #3 start coding!',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFFCBD5E1),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Launch Button Row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: () => setState(() => _showNewWorkflowModal = false),
+                child: const Text('Cancel'),
+              ),
+              const SizedBox(width: 10),
+              InkWell(
+                onTap: () {
+                  final customGit = _customGitUrlController.text.trim();
+                  final chosenRepo = conn.repositories.isNotEmpty
+                      ? conn.repositories[_selectedRepoIndex.clamp(
+                          0,
+                          conn.repositories.length - 1,
+                        )]
+                      : null;
+
+                  setState(() => _showNewWorkflowModal = false);
+                  orch.startNewWorkflow(
+                    isGitRepo: _workflowUseGitRepo,
+                    selectedRepo: customGit.isEmpty ? chosenRepo : null,
+                    customGitUrl: customGit.isNotEmpty ? customGit : null,
+                    localFolderPath: _customLocalPathController.text,
+                    promptRequest: _workflowPromptController.text,
+                  );
+                },
+                borderRadius: BorderRadius.circular(22),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 22,
+                    vertical: 11,
+                  ),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFEC4899), Color(0xFFE11D48)],
+                    ),
+                    borderRadius: BorderRadius.circular(22),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.play_arrow, size: 16, color: Colors.white),
+                      SizedBox(width: 6),
+                      Text(
+                        'Scan Files & Create Work Plan',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  //********************************************************************
+  // 3.1 PRO WORK PLAN CONFIRMATION BANNER (WHEN DIRECTOR IS AVAILABLE)*
+  //********************************************************************
+  Widget _buildWorkPlanConfirmationBanner(OfficeOrchestrator orch) {
+    final plan = orch.pendingWorkPlan!;
+    final planner = orch.agents[7]; // #8 3.1 Pro
+    final argon = orch.agents[6];   // #7 Argon High
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _navyCard.withValues(alpha: 0.98),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _neonCyan, width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.55),
+            blurRadius: 20,
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.assignment_turned_in, color: _neonCyan, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '${planner.name.toUpperCase()} (${planner.modelName}) CREATED WORK PLAN // CONFIRM BEFORE CODERS START',
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w800,
+                    color: _neonCyan,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Scanned ${plan.totalFilesScanned} files in ${plan.projectPath} (${plan.keyFilesFound.take(3).join(", ")})',
+            style: const TextStyle(
+              fontSize: 11,
+              fontStyle: FontStyle.italic,
+              color: Color(0xFF94A3B8),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '• Front-End (#1 ${orch.agents[0].name}): ${plan.frontendPlanForAgent1}\n'
+            '• Back-End (#3 ${orch.agents[2].name}): ${plan.backendPlanForAgent3}',
+            style: const TextStyle(fontSize: 11.5, height: 1.4),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _neonCyan,
+                  foregroundColor: Colors.black,
+                ),
+                onPressed: () => orch.confirmWorkPlanAndStartCoding(
+                  confirmedBy: 'Director (VIP Suite)',
+                ),
+                icon: const Icon(Icons.check, size: 16),
+                label: const Text(
+                  'Confirm Plan & Start Coders',
+                  style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold),
+                ),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: () {
+                  orch.toggleDirectorAvailability();
+                  orch.confirmWorkPlanAndStartCoding(
+                    confirmedBy: '${argon.name} [${argon.modelName}] (AFK Auto)',
+                  );
+                },
+                child: Text(
+                  'Go AFK -> Let ${argon.name} Confirm Plan',
+                  style: const TextStyle(fontSize: 11, color: _neonPink),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  //********************************************************************
+  // LEFT SLEEK SIDEBAR + LIVE CODE TELEMETRY GRAPH (+LINES/-LINES/ERR)*
   //********************************************************************
   Widget _buildLeftSleekSidebar(
     OfficeOrchestrator orch,
     Color panelColor,
     Color borderColor,
   ) {
+    final conn = widget.connections;
+
     return Column(
       children: [
-        // Top Card: Squad List with Glowing Highlight Bars
+        // Top Card: Squad List
         Expanded(
           child: Container(
             padding: const EdgeInsets.all(14),
@@ -458,6 +1029,7 @@ class _OfficeWorkspaceScreenState extends State<OfficeWorkspaceScreen>
                 const SizedBox(height: 2),
                 Text(
                   orch.sshProjectPath.split('/').last,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 11,
                     fontStyle: FontStyle.italic,
@@ -546,9 +1118,9 @@ class _OfficeWorkspaceScreenState extends State<OfficeWorkspaceScreen>
         ),
         const SizedBox(height: 12),
 
-        // Bottom Card: "Overall Progress" Sparkline Card
+        // Bottom Card: Live Code & Error Telemetry Graph
         Container(
-          height: 175,
+          height: 195,
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: panelColor,
@@ -559,54 +1131,43 @@ class _OfficeWorkspaceScreenState extends State<OfficeWorkspaceScreen>
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'Overall Progress',
-                style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
+                'Overall Progress & Code Graph',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
               ),
-              const Text(
-                'Gemini Web & Jules Telemetry',
-                style: TextStyle(
-                  fontSize: 10.5,
-                  fontStyle: FontStyle.italic,
-                  color: Color(0xFF94A3B8),
-                ),
-              ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
+              // Live Counters for +Lines Added, -Lines Deleted, and !Errors
               Row(
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    '${widget.connections.totalOperationsCount}',
-                    style: const TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w300,
-                    ),
+                  _buildMetricPill(
+                    '+${conn.totalLinesAdded}',
+                    'Added',
+                    _neonCyan,
                   ),
-                  const SizedBox(width: 10),
-                  const Icon(
-                    Icons.change_history,
-                    size: 12,
-                    color: _neonPink,
+                  _buildMetricPill(
+                    '-${conn.totalLinesDeleted}',
+                    'Deleted',
+                    _neonPurple,
                   ),
-                  const SizedBox(width: 3),
-                  Text(
-                    '+${widget.connections.learnedRules.length}.87',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white70,
-                    ),
+                  _buildMetricPill(
+                    '!${conn.totalErrorsEncountered}',
+                    'Errors',
+                    _neonPink,
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               Expanded(
                 child: SizedBox(
                   width: double.infinity,
                   child: CustomPaint(
-                    painter: SparklineAreaChartPainter(
-                      points: widget.connections.progressHistory,
-                      lineColor: _neonCyan,
+                    painter: LiveCodeTelemetryChartPainter(
+                      addedSeries: conn.addedLinesHistory,
+                      deletedSeries: conn.deletedLinesHistory,
+                      errorSeries: conn.errorsHistory,
+                      addedColor: _neonCyan,
+                      deletedColor: _neonPurple,
+                      errorColor: _neonPink,
                     ),
                   ),
                 ),
@@ -615,6 +1176,33 @@ class _OfficeWorkspaceScreenState extends State<OfficeWorkspaceScreen>
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildMetricPill(String value, String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: color,
+            ),
+          ),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 9, color: Color(0xFF94A3B8)),
+          ),
+        ],
+      ),
     );
   }
 
@@ -665,6 +1253,7 @@ class _OfficeWorkspaceScreenState extends State<OfficeWorkspaceScreen>
               ),
               InkWell(
                 onTap: () => setState(() {
+                  _showNewWorkflowModal = false;
                   _connectionsInitialTab = 1;
                   _showConnectionsWindow = true;
                 }),
@@ -758,7 +1347,8 @@ class _OfficeWorkspaceScreenState extends State<OfficeWorkspaceScreen>
                     },
                     decoration: InputDecoration(
                       hintText: 'Teach / intercept ${selected.name}...',
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 12),
                       filled: true,
                       fillColor: const Color(0xFF131726),
                       border: OutlineInputBorder(
@@ -1034,6 +1624,7 @@ class _OfficeWorkspaceScreenState extends State<OfficeWorkspaceScreen>
             label: 'Web Login',
             filledColor: _neonPink,
             onTap: () => setState(() {
+              _showNewWorkflowModal = false;
               _connectionsInitialTab = 0;
               _showConnectionsWindow = true;
             }),
@@ -1044,6 +1635,7 @@ class _OfficeWorkspaceScreenState extends State<OfficeWorkspaceScreen>
             label: 'Sliders & Learn',
             filledColor: _neonCyan,
             onTap: () => setState(() {
+              _showNewWorkflowModal = false;
               _connectionsInitialTab = 3;
               _showConnectionsWindow = true;
             }),
@@ -1051,7 +1643,7 @@ class _OfficeWorkspaceScreenState extends State<OfficeWorkspaceScreen>
           const SizedBox(width: 8),
           _neonDockButton(
             icon: orch.isDirectorAvailable ? Icons.person : Icons.auto_mode,
-            label: orch.isDirectorAvailable ? 'Available' : 'AFK (3.1 Mid)',
+            label: orch.isDirectorAvailable ? 'Available' : 'AFK (Argon Plan)',
             outlineColor: _neonCyan,
             onTap: orch.toggleDirectorAvailability,
           ),
@@ -1076,12 +1668,10 @@ class _OfficeWorkspaceScreenState extends State<OfficeWorkspaceScreen>
           ),
           const SizedBox(width: 8),
           _neonDockButton(
-            icon: Icons.play_arrow,
-            label: 'Run Workflow',
+            icon: Icons.rocket_launch,
+            label: 'Start New Workflow',
             filledColor: _neonCyan,
-            onTap: () => orch.dispatchMission(
-              'Build feature in ${orch.sshProjectPath}',
-            ),
+            onTap: _openStartWorkflowModal,
           ),
         ],
       ),
@@ -1133,25 +1723,48 @@ class _OfficeWorkspaceScreenState extends State<OfficeWorkspaceScreen>
 }
 
 //**********************************************************************
-// SPARKLINE AREA CHART PAINTER                                        *
+// LIVE CODE TELEMETRY CHART PAINTER (+ADDED, -DELETED, !ERRORS)       *
 //**********************************************************************
-class SparklineAreaChartPainter extends CustomPainter {
-  final List<double> points;
-  final Color lineColor;
+class LiveCodeTelemetryChartPainter extends CustomPainter {
+  final List<double> addedSeries;
+  final List<double> deletedSeries;
+  final List<double> errorSeries;
+  final Color addedColor;
+  final Color deletedColor;
+  final Color errorColor;
 
-  SparklineAreaChartPainter({required this.points, required this.lineColor});
+  LiveCodeTelemetryChartPainter({
+    required this.addedSeries,
+    required this.deletedSeries,
+    required this.errorSeries,
+    required this.addedColor,
+    required this.deletedColor,
+    required this.errorColor,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (points.length < 2) return;
+    _drawSeries(canvas, size, addedSeries, addedColor, fillArea: true);
+    _drawSeries(canvas, size, deletedSeries, deletedColor, fillArea: false);
+    _drawSeries(canvas, size, errorSeries, errorColor, fillArea: false);
+  }
+
+  void _drawSeries(
+    Canvas canvas,
+    Size size,
+    List<double> pts,
+    Color color, {
+    required bool fillArea,
+  }) {
+    if (pts.length < 2) return;
 
     final path = Path();
     final fillPath = Path();
-    final stepX = size.width / (points.length - 1);
+    final stepX = size.width / (pts.length - 1);
 
-    for (int i = 0; i < points.length; i++) {
+    for (int i = 0; i < pts.length; i++) {
       final x = i * stepX;
-      final y = size.height - (points[i].clamp(0.0, 1.0) * (size.height - 10));
+      final y = size.height - (pts[i].clamp(0.0, 1.0) * (size.height - 8));
       if (i == 0) {
         path.moveTo(x, y);
         fillPath.moveTo(x, size.height);
@@ -1162,37 +1775,38 @@ class SparklineAreaChartPainter extends CustomPainter {
       }
     }
 
-    fillPath.lineTo(size.width, size.height);
-    fillPath.close();
-
-    final grad = LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      colors: [
-        lineColor.withValues(alpha: 0.45),
-        lineColor.withValues(alpha: 0.02),
-      ],
-    );
-    canvas.drawPath(
-      fillPath,
-      Paint()..shader = grad.createShader(Offset.zero & size),
-    );
+    if (fillArea) {
+      fillPath.lineTo(size.width, size.height);
+      fillPath.close();
+      final grad = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          color.withValues(alpha: 0.38),
+          color.withValues(alpha: 0.02),
+        ],
+      );
+      canvas.drawPath(
+        fillPath,
+        Paint()..shader = grad.createShader(Offset.zero & size),
+      );
+    }
 
     canvas.drawPath(
       path,
       Paint()
-        ..color = lineColor
+        ..color = color
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.2,
+        ..strokeWidth = fillArea ? 2.2 : 1.6,
     );
 
-    for (int i = 0; i < points.length; i++) {
-      final x = i * stepX;
-      final y = size.height - (points[i].clamp(0.0, 1.0) * (size.height - 10));
-      canvas.drawCircle(Offset(x, y), 3.2, Paint()..color = Colors.white);
-    }
+    // Draw vertex dot on latest point
+    final lastX = (pts.length - 1) * stepX;
+    final lastY = size.height - (pts.last.clamp(0.0, 1.0) * (size.height - 8));
+    canvas.drawCircle(Offset(lastX, lastY), 3.0, Paint()..color = color);
   }
 
   @override
-  bool shouldRepaint(covariant SparklineAreaChartPainter oldDelegate) => true;
+  bool shouldRepaint(covariant LiveCodeTelemetryChartPainter oldDelegate) =>
+      true;
 }

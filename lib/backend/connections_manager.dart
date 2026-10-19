@@ -3,16 +3,17 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 //**********************************************************************
-// BACKEND WEBSITE CONNECTIONS, ROLE MAPPER, GITHUB CLONER & LEARNING  *
+// BACKEND WEBSITE CONNECTIONS, ROLE MAPPER, GITHUB CLONER & TELEMETRY *
 // Official Links Configured:                                          *
 // - Gemini: https://gemini.google.com/app                             *
 // - Jules:  https://jules.google.com/session                          *
 // - GitHub: https://github.com/                                       *
+// Clones Git repos into ~/Desktop/projects/<repo_name>                *
 //**********************************************************************
 
 enum OfficeRoleSlot {
-  finalReviewer,   // Argon (High): Final audit, SSH test & delivery
-  offlineReviewer, // 3.1 Pro (Mid): Mid-coding audit & AFK fallback
+  finalReviewer,   // Argon (High): Final audit, Plan confirm (AFK) & SSH
+  offlineReviewer, // 3.1 Pro (Mid): Work Plan Creator & Mid-Coding Audit
   overflowGitBot,  // Jules (Web): Quota overflow finisher & Git committer
   frontendDev,     // 3.8 Flash (Mid): Main Front-End coder
   frontendCritic,  // 3.8 Flash (High): Front-End critique & QA
@@ -121,20 +122,27 @@ class ConnectionsManager extends ChangeNotifier {
   late final List<ProviderConnection> providers;
   late final Map<OfficeRoleSlot, RoleAssignment> roleAssignments;
 
-  // Sleek Control Deck Adjustment Sliders (Matches Reference UI Kit)
+  // Sleek Control Deck Adjustment Sliders
   bool autoLearnEnabled = true;
-  double critiqueStrictness = 0.82; // 0.0 to 1.0
-  double tokenQuotaThreshold = 0.90; // Triggers Jules when reached
-  double agentWalkSpeedMultiplier = 1.0; // 0.5x to 2.0x
+  double critiqueStrictness = 0.82;
+  double tokenQuotaThreshold = 0.90;
+  double agentWalkSpeedMultiplier = 1.0;
 
-  // Telemetry history for the Overall Progress Sparkline Chart
-  final List<double> progressHistory = [0.22, 0.38, 0.31, 0.56, 0.74, 0.89];
+  // Live Code & Error Telemetry for the Bottom-Left Graph
+  final List<double> progressHistory = [0.18, 0.28, 0.34, 0.48, 0.62, 0.75];
+  final List<double> addedLinesHistory = [0.12, 0.24, 0.35, 0.42, 0.58, 0.72];
+  final List<double> deletedLinesHistory = [0.05, 0.08, 0.14, 0.12, 0.19, 0.22];
+  final List<double> errorsHistory = [0.00, 0.00, 0.08, 0.04, 0.00, 0.00];
+
   int totalOperationsCount = 151072;
+  int totalLinesAdded = 0;
+  int totalLinesDeleted = 0;
+  int totalErrorsEncountered = 0;
 
   List<LearnedRule> learnedRules = [];
   late String learningMemoryFilePath;
 
-  // Exact GitHub Website & Cloner State
+  // Official GitHub Website & Cloner State
   String githubUrl = 'https://github.com/';
   String githubUsername = 'MPHalozan1';
   String githubToken = '';
@@ -142,17 +150,19 @@ class ConnectionsManager extends ChangeNotifier {
   bool isFetchingRepos = false;
   bool isCloningRepo = false;
   String lastNotificationTitle = 'Notification';
-  String statusMessage = 'Operation complete! Gemini & Jules links ready.';
+  String statusMessage = 'Operation complete! Ready to start a new workflow.';
 
   List<GitHubRepoItem> repositories = [];
   GitHubRepoItem? activeProjectRepo;
   late String desktopProjectsRoot;
+  late String userHomeDir;
 
   ConnectionsManager() {
-    final home = Platform.environment['HOME'] ??
+    userHomeDir = Platform.environment['HOME'] ??
         Platform.environment['USERPROFILE'] ??
         '.';
-    desktopProjectsRoot = '$home/Desktop/jarvis_workspaces';
+    // Creates ~/Desktop/projects when cloning Git repositories
+    desktopProjectsRoot = '$userHomeDir/Desktop/projects';
     learningMemoryFilePath =
         '$desktopProjectsRoot/adaptive_learning_memory.json';
 
@@ -164,8 +174,92 @@ class ConnectionsManager extends ChangeNotifier {
   }
 
   //********************************************************************
-  // 1. INITIALIZE EXACT AI MODEL WEBSITES                             *
+  // RECORD LIVE CODE TELEMETRY (ADDED LINES, DELETED LINES, ERRORS)   *
+  // Dynamically updates the bottom-left telemetry graph as devs work. *
   //********************************************************************
+  void recordCodeMetrics({
+    int addedLines = 0,
+    int deletedLines = 0,
+    int errors = 0,
+  }) {
+    totalLinesAdded += addedLines;
+    totalLinesDeleted += deletedLines;
+    totalErrorsEncountered += errors;
+    totalOperationsCount += (addedLines + deletedLines + errors * 5);
+
+    // Normalize values to 0.05..0.96 for smooth sparkline plotting
+    final nextAdded =
+        ((addedLinesHistory.last * 0.65) + (addedLines / 65.0)).clamp(0.08, 0.96);
+    final nextDeleted =
+        ((deletedLinesHistory.last * 0.65) + (deletedLines / 45.0))
+            .clamp(0.04, 0.85);
+    final nextErr = errors > 0
+        ? (0.45 + (errors * 0.22)).clamp(0.25, 0.95)
+        : (errorsHistory.last * 0.4).clamp(0.02, 0.95);
+
+    addedLinesHistory.add(nextAdded);
+    deletedLinesHistory.add(nextDeleted);
+    errorsHistory.add(nextErr);
+    progressHistory.add(nextAdded);
+
+    if (addedLinesHistory.length > 14) addedLinesHistory.removeAt(0);
+    if (deletedLinesHistory.length > 14) deletedLinesHistory.removeAt(0);
+    if (errorsHistory.length > 14) errorsHistory.removeAt(0);
+    if (progressHistory.length > 14) progressHistory.removeAt(0);
+
+    notifyListeners();
+  }
+
+  void resetWorkflowTelemetry() {
+    totalLinesAdded = 0;
+    totalLinesDeleted = 0;
+    totalErrorsEncountered = 0;
+    addedLinesHistory
+      ..clear()
+      ..addAll([0.06, 0.08, 0.10, 0.12]);
+    deletedLinesHistory
+      ..clear()
+      ..addAll([0.02, 0.03, 0.04, 0.04]);
+    errorsHistory
+      ..clear()
+      ..addAll([0.01, 0.01, 0.01, 0.01]);
+    notifyListeners();
+  }
+
+  //********************************************************************
+  // DISCOVER LOCAL PROJECT FOLDERS ON DISK                            *
+  // Scans ~/Projects and ~/Desktop/projects for quick selection.      *
+  //********************************************************************
+  List<String> discoverLocalFolders() {
+    final List<String> found = [];
+    final currentDir = Directory.current.path;
+    found.add(currentDir);
+
+    final candidates = [
+      '$userHomeDir/Projects',
+      '$userHomeDir/Desktop/projects',
+      '$userHomeDir/Desktop/jarvis_workspaces',
+    ];
+
+    for (final rootPath in candidates) {
+      try {
+        final dir = Directory(rootPath);
+        if (dir.existsSync()) {
+          for (final entity in dir.listSync()) {
+            if (entity is Directory && !found.contains(entity.path)) {
+              final folderName =
+                  entity.path.split(Platform.pathSeparator).last;
+              if (!folderName.startsWith('.')) {
+                found.add(entity.path);
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }
+    return found;
+  }
+
   void _initWebsiteProviders() {
     providers = [
       ProviderConnection(
@@ -206,21 +300,18 @@ class ConnectionsManager extends ChangeNotifier {
     ];
   }
 
-  //********************************************************************
-  // 2. INITIALIZE YOUR EXACT GEMINI + JULES HIERARCHY                 *
-  //********************************************************************
   void _initDefaultRoleAssignments() {
     roleAssignments = {
       OfficeRoleSlot.finalReviewer: RoleAssignment(
         slot: OfficeRoleSlot.finalReviewer,
-        roleTitle: 'Final Audit & Local SSH (#7)',
+        roleTitle: 'Final Audit & Plan Confirm (#7)',
         characterName: 'argon-high',
         providerId: 'gemini_web',
         selectedModel: 'Argon (High)',
       ),
       OfficeRoleSlot.offlineReviewer: RoleAssignment(
         slot: OfficeRoleSlot.offlineReviewer,
-        roleTitle: 'Mid-Coding Audit / Srednja (#8)',
+        roleTitle: 'Work Planner & Mid Audit (#8)',
         characterName: 'gemini-3.1-mid',
         providerId: 'gemini_web',
         selectedModel: '3.1 Pro (Mid / Srednja raven)',
@@ -287,7 +378,6 @@ class ConnectionsManager extends ChangeNotifier {
     ];
   }
 
-  // Automatically checks if `gh` CLI is signed in on CachyOS
   Future<void> _detectLocalGhCliAuth() async {
     try {
       final res = await Process.run('gh', ['auth', 'token']);
@@ -302,16 +392,12 @@ class ConnectionsManager extends ChangeNotifier {
     } catch (_) {}
   }
 
-  //********************************************************************
-  // 3. RELIABLE LINUX (CACHYOS) & WINDOWS URL LAUNCHER                *
-  //********************************************************************
   Future<bool> openUrlInBrowser(String rawUrl) async {
     final url = rawUrl.trim();
     if (url.isEmpty) return false;
 
     try {
       if (Platform.isLinux) {
-        // Try xdg-open first, then gio open, then common browsers on CachyOS
         final commands = [
           ['xdg-open', url],
           ['gio', 'open', url],
@@ -359,12 +445,6 @@ class ConnectionsManager extends ChangeNotifier {
 
     provider.isSigningIn = false;
     provider.isSignedIn = true;
-    totalOperationsCount += 128;
-    progressHistory.add(
-      (progressHistory.last + 0.06).clamp(0.2, 0.98),
-    );
-    if (progressHistory.length > 8) progressHistory.removeAt(0);
-
     lastNotificationTitle = 'Notification';
     statusMessage = 'Operation complete! Connected to ${provider.websiteUrl}';
     notifyListeners();
@@ -418,8 +498,7 @@ class ConnectionsManager extends ChangeNotifier {
       role.selectedModel = newModel;
     }
     lastNotificationTitle = 'Role Updated';
-    statusMessage =
-        '${role.characterName} assigned to${role.selectedModel}';
+    statusMessage = '${role.characterName} assigned to ${role.selectedModel}';
     notifyListeners();
   }
 
@@ -434,9 +513,6 @@ class ConnectionsManager extends ChangeNotifier {
     notifyListeners();
   }
 
-  //********************************************************************
-  // 4. ADAPTIVE LEARNING ENGINE                                       *
-  //********************************************************************
   void _loadOrInitLearningRules() {
     try {
       final file = File(learningMemoryFilePath);
@@ -461,21 +537,12 @@ class ConnectionsManager extends ChangeNotifier {
       ),
       LearnedRule(
         id: 'rule_2',
-        category: 'UI / UX',
+        category: 'Workflow',
         ruleText:
-            'Keep the 2D Office pixelated while making all surrounding HUD panels sleek and animated.',
+            '3.1 Pro (Mid) must scan project files and confirm the Work Plan with Director or Argon (High) before coders begin.',
         learnedFrom: 'Director Baseline',
-        confidence: 0.96,
-        timesApplied: 11,
-      ),
-      LearnedRule(
-        id: 'rule_3',
-        category: 'Critique Fix',
-        ruleText:
-            'Always set isExpanded: true on DropdownButtonFormField widgets to prevent horizontal overflows.',
-        learnedFrom: '3.8 Flash (High) Critique',
-        confidence: 0.95,
-        timesApplied: 6,
+        confidence: 0.97,
+        timesApplied: 9,
       ),
     ];
     _saveLearningRulesToDisk();
@@ -520,7 +587,6 @@ class ConnectionsManager extends ChangeNotifier {
         timesApplied: 1,
       ),
     );
-    totalOperationsCount += 64;
     lastNotificationTitle = 'Rule Learned';
     statusMessage = 'Saved new pattern from $learnedFrom!';
     _saveLearningRulesToDisk();
@@ -548,15 +614,13 @@ class ConnectionsManager extends ChangeNotifier {
     );
   }
 
-  //********************************************************************
-  // 5. GITHUB SIGN-IN (https://github.com/) & REPO CLONER             *
-  //********************************************************************
   Future<void> signInToGithubOnWeb() async {
     await openUrlInBrowser(githubUrl);
     await _detectLocalGhCliAuth();
     isGithubSignedIn = true;
     lastNotificationTitle = 'GitHub Connected';
-    statusMessage = 'Opened $githubUrl & synced repositories for @$githubUsername';
+    statusMessage =
+        'Opened $githubUrl & synced repositories for @$githubUsername';
     notifyListeners();
     await connectAndFetchGithubRepos(
       username: githubUsername,
@@ -578,7 +642,8 @@ class ConnectionsManager extends ChangeNotifier {
 
     isFetchingRepos = true;
     lastNotificationTitle = 'Syncing GitHub';
-    statusMessage = 'Fetching repositories from $githubUrl for @$githubUsername...';
+    statusMessage =
+        'Fetching repositories from $githubUrl for @$githubUsername...';
     notifyListeners();
 
     try {
@@ -644,11 +709,14 @@ class ConnectionsManager extends ChangeNotifier {
     notifyListeners();
   }
 
+  //********************************************************************
+  // CLONE GIT REPO INTO ~/Desktop/projects/<repo_name>                *
+  //********************************************************************
   Future<String> cloneAndSelectRepoOnDesktop(GitHubRepoItem repo) async {
     isCloningRepo = true;
     final targetPath = '$desktopProjectsRoot/${repo.name}';
     lastNotificationTitle = 'Cloning Repo';
-    statusMessage = 'Cloning ${repo.fullName} to Desktop ($targetPath)...';
+    statusMessage = 'Creating ~/Desktop/projects & cloning ${repo.fullName}...';
     notifyListeners();
 
     try {
@@ -668,7 +736,7 @@ class ConnectionsManager extends ChangeNotifier {
           await repoDir.create(recursive: true);
           await Process.run('git', ['init'], workingDirectory: targetPath);
           File('$targetPath/README.md').writeAsStringSync(
-            '# ${repo.name}\nCloned by jarvis-pixel-env on Desktop.\n',
+            '# ${repo.name}\nCloned by jarvis-pixel-env into ~/Desktop/projects.\n',
           );
         }
       }
@@ -677,8 +745,7 @@ class ConnectionsManager extends ChangeNotifier {
       repo.localDesktopPath = targetPath;
       activeProjectRepo = repo;
       lastNotificationTitle = 'Notification';
-      statusMessage =
-          'Operation complete! Assigned agents to $targetPath';
+      statusMessage = 'Operation complete! Cloned to $targetPath';
     } catch (_) {
       repo.isClonedToDesktop = true;
       repo.localDesktopPath = targetPath;
@@ -689,5 +756,23 @@ class ConnectionsManager extends ChangeNotifier {
     isCloningRepo = false;
     notifyListeners();
     return targetPath;
+  }
+
+  Future<String> cloneCustomGitUrlToDesktop(String gitUrl) async {
+    final cleanUrl = gitUrl.trim();
+    String repoName = cleanUrl.split('/').last.replaceAll('.git', '').trim();
+    if (repoName.isEmpty) repoName = 'custom_git_project';
+
+    final customRepo = GitHubRepoItem(
+      name: repoName,
+      fullName: repoName,
+      description: 'Cloned from $cleanUrl',
+      cloneUrl: cleanUrl,
+      defaultBranch: 'main',
+    );
+    if (!repositories.any((r) => r.name == repoName)) {
+      repositories.insert(0, customRepo);
+    }
+    return cloneAndSelectRepoOnDesktop(customRepo);
   }
 }
