@@ -5,31 +5,37 @@ import 'package:flutter/material.dart';
 import 'connections_manager.dart';
 
 //**********************************************************************
-// JARVIS_V2 BACK-END // OPEN-SOURCE PROVIDER-AGNOSTIC ORCHESTRATOR    *
-// Dynamically syncs agent names, providers, models, and active        *
-// cloned Desktop repository paths from ConnectionsManager.            *
+// JARVIS PIXEL ENV BACK-END // WEBSITE AI & LEARNING ORCHESTRATOR     *
+// Coordinates:                                                        *
+// - #1 & #3 Main Coders: 3.8 Flash (Mid)                              *
+// - #2 & #4 Critiques: 3.8 Flash (High)                               *
+// - #8 Mid-Coding Audit (Srednja raven): 3.1 Pro (Mid)                *
+// - #7 Final Audit & Local SSH: Argon (High)                          *
+// - #5 Token Quota Overflow & Git Finisher: Jules (Web)               *
+// - #9 Fast Token & Speed Monitor: 3.5 Flash-Lite                     *
+// - Live Adaptive Learning injection & pattern extraction             *
 //**********************************************************************
 
 enum AgentState { active, attention, idle, done, sleeping }
 
 enum RoomId {
-  finalReviewOffice, // Top-Left: Final Reviewer & Local SSH Runner
-  afkAuditOffice,    // Top-Center: Offline (AFK) Reviewer
-  tokenOffice,       // Top-Right: Token CFO Reporter
-  hallway,           // Central Corridor
-  codingBay,         // Bottom-Left: 4 Dev/Critic Tables + Overflow/Git Agent
+  finalReviewOffice, // Top-Left: Argon (High) Final Audit & SSH
+  afkAuditOffice,    // Top-Center: 3.1 Pro (Mid) Srednja raven Audit
+  tokenOffice,       // Top-Right: 3.5 Flash-Lite Token & Learning Monitor
+  hallway,           // Central Fiber Corridor
+  codingBay,         // Bottom-Left: 3.8 Flash (Mid) Coders + 3.8 Flash (High) Critics + Jules
   directorSuite,     // Bottom-Right: Your Shiny VIP Office
 }
 
 enum WorkflowStage {
   idle,
   devsAndCriticsWorking,
-  awaitingQuestionOrAudit,
-  tokenExhaustedOverflowTakeover,
-  finalCheckAndSsh,
+  awaitingQuestionOrMidAudit,
+  tokenExhaustedJulesTakeover,
+  argonFinalAuditAndSsh,
   sshFailedFixing,
   deliveringToDirector,
-  committingToGit,
+  julesCommittingToGit,
   completed,
 }
 
@@ -79,9 +85,9 @@ class OfficeAgent {
     required this.shortBubble,
     this.hasHeadphones = true,
     this.hasGlasses = false,
-    this.tokensUsed = 380,
+    this.tokensUsed = 350,
     this.tokenLimit = 4000,
-    this.costUsd = 0.04,
+    this.costUsd = 0.00,
     List<String>? initialLogs,
   })  : currentPos = homePos,
         logs = initialLogs ?? [];
@@ -104,17 +110,17 @@ class OfficeOrchestrator extends ChangeNotifier {
   bool simulateTokenExhaustion = false;
 
   String sshHost = 'localhost';
-  String sshProjectPath = '~/Desktop/jarvis_workspaces/jarvis_v2';
+  String sshProjectPath = '~/Desktop/jarvis_workspaces/jarvis-pixel-env';
   String activeGitBranch = 'main';
 
   WorkflowStage stage = WorkflowStage.idle;
-  String currentMission = 'Select or clone a repo & dispatch a task';
+  String currentMission = 'Ready to dispatch to Gemini Website models';
   String? pendingQuestionForDirector;
 
   final List<String> globalTerminalLogs = [];
   final List<String> problemsList = [];
   final List<String> gitCommitHistory = [
-    'init001 (HEAD -> main) chore: open-source multi-agent workspace ready',
+    'a4e343b (HEAD -> main) feat: configure Gemini Website models + Adaptive Learning',
   ];
 
   late final List<OfficeAgent> agents;
@@ -124,7 +130,9 @@ class OfficeOrchestrator extends ChangeNotifier {
     _initAgents();
     connections.addListener(_syncFromConnectionsManager);
     _syncFromConnectionsManager();
-    _addGlobalLog('[SYSTEM] Open-Source Multi-Agent Orchestrator initialized.');
+    _addGlobalLog(
+      '[WEB-BRIDGE] Linked to Gemini Website (3.5 Flash-Lite, 3.8 Flash Mid/High, 3.1 Pro Mid, Argon High) & Jules Web.',
+    );
   }
 
   @override
@@ -133,9 +141,6 @@ class OfficeOrchestrator extends ChangeNotifier {
     super.dispose();
   }
 
-  //********************************************************************
-  // SYNC AGENT NAMES, PROVIDERS, MODELS & CLONED DESKTOP REPO         *
-  //********************************************************************
   void _syncFromConnectionsManager() {
     for (final agent in agents) {
       if (agent.roleSlot != null) {
@@ -162,15 +167,15 @@ class OfficeOrchestrator extends ChangeNotifier {
 
   void _initAgents() {
     agents = [
-      // #1 Front-End Dev
+      // #1 Main Front-End Coder: 3.8 Flash (Mid)
       OfficeAgent(
         id: 1,
         roleSlot: OfficeRoleSlot.frontendDev,
-        name: 'nova-fe',
-        role: 'Front-End Builder',
-        modelName: 'codex-mini-latest',
-        providerName: 'OpenAI',
-        group: 'dev-squad',
+        name: 'flash-3.8-fe',
+        role: 'Main Front-End Coder',
+        modelName: '3.8 Flash (Mid)',
+        providerName: 'Gemini',
+        group: 'gemini-3.8-flash',
         branch: 'main',
         hairColor: const Color(0xFFD97706),
         shirtColor: const Color(0xFF2563EB),
@@ -179,19 +184,19 @@ class OfficeOrchestrator extends ChangeNotifier {
         homePos: const Offset(220, 465),
         homeRoom: RoomId.codingBay,
         state: AgentState.active,
-        shortBubble: 'Typing UI...',
+        shortBubble: '3.8 Mid (FE)',
         hasHeadphones: true,
-        initialLogs: ['[Ready] Front-End agent online.'],
+        initialLogs: ['[Gemini Web] 3.8 Flash (Mid) Front-End coder ready.'],
       ),
-      // #2 Front-End Critic
+      // #2 Front-End Critique: 3.8 Flash (High)
       OfficeAgent(
         id: 2,
         roleSlot: OfficeRoleSlot.frontendCritic,
-        name: 'vex-critic-fe',
-        role: 'FE Critic & QA',
-        modelName: 'claude-code-sonnet',
-        providerName: 'Claude',
-        group: 'dev-squad',
+        name: 'critic-3.8-fe',
+        role: 'FE Critique (High)',
+        modelName: '3.8 Flash (High)',
+        providerName: 'Gemini',
+        group: 'gemini-3.8-flash',
         branch: 'main',
         hairColor: const Color(0xFFF43F5E),
         shirtColor: const Color(0xFF7C3AED),
@@ -200,19 +205,19 @@ class OfficeOrchestrator extends ChangeNotifier {
         homePos: const Offset(220, 605),
         homeRoom: RoomId.codingBay,
         state: AgentState.active,
-        shortBubble: 'Auditing FE',
+        shortBubble: '3.8 High (QA)',
         hasGlasses: true,
-        initialLogs: ['[Ready] Front-End critic online.'],
+        initialLogs: ['[Gemini Web] 3.8 Flash (High) FE Critique ready.'],
       ),
-      // #3 Back-End Dev
+      // #3 Main Back-End Coder: 3.8 Flash (Mid)
       OfficeAgent(
         id: 3,
         roleSlot: OfficeRoleSlot.backendDev,
-        name: 'kael-be',
-        role: 'Back-End Builder',
-        modelName: 'o3-mini-high',
-        providerName: 'OpenAI',
-        group: 'dev-squad',
+        name: 'flash-3.8-be',
+        role: 'Main Back-End Coder',
+        modelName: '3.8 Flash (Mid)',
+        providerName: 'Gemini',
+        group: 'gemini-3.8-flash',
         branch: 'main',
         hairColor: const Color(0xFF111827),
         shirtColor: const Color(0xFF059669),
@@ -221,19 +226,19 @@ class OfficeOrchestrator extends ChangeNotifier {
         homePos: const Offset(425, 465),
         homeRoom: RoomId.codingBay,
         state: AgentState.active,
-        shortBubble: 'Typing Backend...',
+        shortBubble: '3.8 Mid (BE)',
         hasHeadphones: true,
-        initialLogs: ['[Ready] Back-End agent online.'],
+        initialLogs: ['[Gemini Web] 3.8 Flash (Mid) Back-End coder ready.'],
       ),
-      // #4 Back-End Critic
+      // #4 Back-End Critique: 3.8 Flash (High)
       OfficeAgent(
         id: 4,
         roleSlot: OfficeRoleSlot.backendCritic,
-        name: 'nyx-critic-be',
-        role: 'BE Critic & QA',
-        modelName: 'claude-code-sonnet',
-        providerName: 'Claude',
-        group: 'dev-squad',
+        name: 'critic-3.8-be',
+        role: 'BE Critique (High)',
+        modelName: '3.8 Flash (High)',
+        providerName: 'Gemini',
+        group: 'gemini-3.8-flash',
         branch: 'main',
         hairColor: const Color(0xFFE2E8F0),
         shirtColor: const Color(0xFF6D28D9),
@@ -242,19 +247,19 @@ class OfficeOrchestrator extends ChangeNotifier {
         homePos: const Offset(425, 605),
         homeRoom: RoomId.codingBay,
         state: AgentState.active,
-        shortBubble: 'Auditing BE',
+        shortBubble: '3.8 High (QA)',
         hasGlasses: true,
-        initialLogs: ['[Ready] Back-End critic online.'],
+        initialLogs: ['[Gemini Web] 3.8 Flash (High) BE Critique ready.'],
       ),
-      // #5 Quota Overflow & Git Committer
+      // #5 Token Quota Overflow & Git Finisher: Jules (Web)
       OfficeAgent(
         id: 5,
         roleSlot: OfficeRoleSlot.overflowGitBot,
-        name: 'chronos-git',
-        role: 'Overflow & Git Bot',
-        modelName: 'jules-cloud-agent',
-        providerName: 'Google',
-        group: 'git-ops',
+        name: 'jules-web',
+        role: 'Quota Overflow & Git',
+        modelName: 'Jules Web Finisher (Cloud + Git)',
+        providerName: 'Jules',
+        group: 'jules-overflow',
         branch: 'main',
         hairColor: const Color(0xFFC084FC),
         shirtColor: const Color(0xFF4F46E5),
@@ -263,19 +268,21 @@ class OfficeOrchestrator extends ChangeNotifier {
         homePos: const Offset(590, 535),
         homeRoom: RoomId.codingBay,
         state: AgentState.active,
-        shortBubble: 'Overflow & Git',
+        shortBubble: 'Jules Standby',
         tokenLimit: 30000,
         hasHeadphones: true,
-        initialLogs: ['[Ready] Watching token overflow & git branch.'],
+        initialLogs: [
+          '[Jules Website] Ready to take over when Gemini Web tokens run out.',
+        ],
       ),
-      // #6 Director (User in Shiny VIP Suite)
+      // #6 Director (You in Shiny VIP Suite)
       OfficeAgent(
         id: 6,
-        name: 'director-you',
+        name: 'miha-director',
         role: 'Project Director',
-        modelName: 'Human Lead',
-        providerName: 'Local',
-        group: 'reviewers',
+        modelName: 'Human Lead (VIP)',
+        providerName: 'VIP',
+        group: 'audit-wing',
         branch: 'main',
         hairColor: const Color(0xFF78350F),
         shirtColor: const Color(0xFF06B6D4),
@@ -289,15 +296,15 @@ class OfficeOrchestrator extends ChangeNotifier {
         costUsd: 0.0,
         initialLogs: ['[VIP Suite] Director active in Shiny Office.'],
       ),
-      // #7 Final Reviewer & SSH Integrator
+      // #7 Final Audit & Local SSH: Argon (High)
       OfficeAgent(
         id: 7,
         roleSlot: OfficeRoleSlot.finalReviewer,
-        name: 'atlas-final',
-        role: 'Final Reviewer & SSH',
-        modelName: 'claude-3-7-sonnet-high',
-        providerName: 'Claude',
-        group: 'reviewers',
+        name: 'argon-high',
+        role: 'Final Audit & SSH',
+        modelName: 'Argon (High)',
+        providerName: 'Gemini',
+        group: 'audit-wing',
         branch: 'main',
         hairColor: const Color(0xFFFACC15),
         shirtColor: const Color(0xFFDC2626),
@@ -306,20 +313,22 @@ class OfficeOrchestrator extends ChangeNotifier {
         homePos: const Offset(275, 175),
         homeRoom: RoomId.finalReviewOffice,
         state: AgentState.active,
-        shortBubble: 'Final SSH Reviewer',
+        shortBubble: 'Argon High Final',
         tokenLimit: 20000,
         hasHeadphones: true,
-        initialLogs: ['[Ready] Final Reviewer & Local SSH Runner online.'],
+        initialLogs: [
+          '[Gemini Web] Argon (High) Final Auditor & SSH Runner online.',
+        ],
       ),
-      // #8 Offline / AFK Reviewer
+      // #8 Mid-Coding Audit (Srednja raven): 3.1 Pro (Mid)
       OfficeAgent(
         id: 8,
         roleSlot: OfficeRoleSlot.offlineReviewer,
-        name: 'oracle-afk',
-        role: 'Offline AFK Reviewer',
-        modelName: 'gemini-3.1-pro-high',
-        providerName: 'Google',
-        group: 'reviewers',
+        name: 'gemini-3.1-mid',
+        role: 'Mid-Coding Audit (Srednja)',
+        modelName: '3.1 Pro (Mid / Srednja raven)',
+        providerName: 'Gemini',
+        group: 'audit-wing',
         branch: 'main',
         hairColor: const Color(0xFF38BDF8),
         shirtColor: const Color(0xFF1D4ED8),
@@ -328,19 +337,22 @@ class OfficeOrchestrator extends ChangeNotifier {
         homePos: const Offset(565, 175),
         homeRoom: RoomId.afkAuditOffice,
         state: AgentState.active,
-        shortBubble: 'AFK Auditor',
+        shortBubble: '3.1 Pro Mid Audit',
         tokenLimit: 20000,
         hasGlasses: true,
-        initialLogs: ['[Ready] Offline Reviewer ready for AFK questions.'],
+        initialLogs: [
+          '[Gemini Web] 3.1 Pro (Srednja raven) ready for mid-coding audits.',
+        ],
       ),
-      // #9 Stax (Token CFO Reporter)
+      // #9 Fast Token & Learning Overseer: 3.5 Flash-Lite
       OfficeAgent(
         id: 9,
-        name: 'stax-token-cfo',
-        role: 'Token Usage Reporter',
-        modelName: 'Ledger-Bot',
-        providerName: 'Metrics',
-        group: 'reviewers',
+        roleSlot: OfficeRoleSlot.tokenOverseer,
+        name: 'stax-3.5-lite',
+        role: 'Token & Learning Lite',
+        modelName: '3.5 Flash-Lite',
+        providerName: 'Gemini',
+        group: 'audit-wing',
         branch: 'main',
         hairColor: const Color(0xFF4ADE80),
         shirtColor: const Color(0xFF15803D),
@@ -349,11 +361,13 @@ class OfficeOrchestrator extends ChangeNotifier {
         homePos: const Offset(855, 175),
         homeRoom: RoomId.tokenOffice,
         state: AgentState.active,
-        shortBubble: 'Quota: 19% Used',
-        tokensUsed: 150,
-        costUsd: 0.01,
+        shortBubble: '3.5 Lite: 18%',
+        tokensUsed: 120,
+        costUsd: 0.00,
         hasGlasses: true,
-        initialLogs: ['[Stax] Tracking token usage across all configured models.'],
+        initialLogs: [
+          '[Gemini Web] 3.5 Flash-Lite tracking web quota & learning rules.',
+        ],
       ),
     ];
   }
@@ -477,8 +491,6 @@ class OfficeOrchestrator extends ChangeNotifier {
 
     if (id != 6 && id != 9) {
       a.tokensUsed = (a.tokensUsed + addTokens).clamp(0, a.tokenLimit);
-      a.costUsd =
-          double.parse((a.costUsd + addTokens * 0.00008).toStringAsFixed(2));
     }
     _addGlobalLog('[${a.name} // ${a.modelName}] $msg');
     _updateStaxTokenReport();
@@ -492,31 +504,51 @@ class OfficeOrchestrator extends ChangeNotifier {
     final pct = ((totalUsed / totalMax) * 100).round();
 
     final stax = agents.firstWhere((a) => a.id == 9);
-    stax.shortBubble = 'Quota: $pct% Used';
+    stax.shortBubble = '3.5 Lite: $pct% Quota';
+  }
+
+  //********************************************************************
+  // REAL-TIME WORKER PROMPT INTERCEPT & ADAPTIVE LEARNING TRAINER     *
+  //********************************************************************
+  void injectInstructionAndLearn(int agentId, String instruction) {
+    final clean = instruction.trim();
+    if (clean.isEmpty) return;
+    final agent = agents.firstWhere((a) => a.id == agentId);
+    agent.shortBubble = 'Learned Rule!';
+    logAgent(
+      agentId,
+      '[INTERCEPT + LEARNED] Applied instruction: "$clean"',
+      addTokens: 120,
+    );
+    connections.recordLearnedPattern(
+      category: agentId <= 2 ? 'UI / Frontend' : 'Backend / Architecture',
+      ruleText: clean,
+      learnedFrom: 'Direct Intercept -> ${agent.name} (${agent.modelName})',
+    );
   }
 
   void toggleDirectorAvailability() {
     isDirectorAvailable = !isDirectorAvailable;
     final dir = agents.firstWhere((a) => a.id == 6);
-    final afkRev = agents.firstWhere((a) => a.id == 8);
+    final midAuditor = agents.firstWhere((a) => a.id == 8);
     dir.state = isDirectorAvailable ? AgentState.active : AgentState.sleeping;
     dir.shortBubble =
-        isDirectorAvailable ? 'AVAILABLE' : 'AFK -> ${afkRev.name}';
+        isDirectorAvailable ? 'AVAILABLE' : 'AFK -> ${midAuditor.name}';
     logAgent(
       6,
       isDirectorAvailable
           ? 'Director AVAILABLE (Agents ask me directly)'
-          : 'Director AFK (Questions route to ${afkRev.name} [${afkRev.modelName}])',
+          : 'Director AFK (Mid-coding audits handled by ${midAuditor.name} [${midAuditor.modelName}])',
       addTokens: 0,
     );
   }
 
   //********************************************************************
-  // MULTI-AGENT WORKFLOW PIPELINE                                     *
+  // MULTI-AGENT WORKFLOW WITH ADAPTIVE LEARNING & 3.1 PRO MID AUDIT   *
   //********************************************************************
   Future<void> dispatchMission(String rawPrompt) async {
     final task = rawPrompt.trim().isEmpty
-        ? 'Implement feature in $sshProjectPath'
+        ? 'Build feature & apply learned rules in $sshProjectPath'
         : rawPrompt.trim();
 
     currentMission = task;
@@ -524,143 +556,157 @@ class OfficeOrchestrator extends ChangeNotifier {
     _sshAttempt = 0;
     problemsList.clear();
 
-    final finalRev = agents[6]; // #7 Final Reviewer
+    final rulesCount = connections.learnedRules.length;
+    logAgent(
+      9,
+      '[3.5 Flash-Lite] Injected $rulesCount Adaptive Learning rules into 3.8 Flash (Mid) coders.',
+      addTokens: 60,
+    );
     logAgent(
       7,
-      'Dispatched "$task" to ${agents[0].name} & ${agents[2].name} in $sshProjectPath',
+      '[Argon High] Dispatched "$task" to 3.8 Flash (Mid) coders & 3.8 Flash (High) critics.',
+      addTokens: 100,
     );
 
     agents[0].state = AgentState.active;
-    agents[0].shortBubble = 'Typing UI...';
+    agents[0].shortBubble = '3.8 Mid Coding UI';
     agents[2].state = AgentState.active;
-    agents[2].shortBubble = 'Typing Backend...';
+    agents[2].shortBubble = '3.8 Mid Coding BE';
 
-    // Critics (#2 & #4) walk up to audit #1 & #3
+    // 3.8 Flash (High) Critics (#2 & #4) walk up to audit #1 & #3
     agents[1].state = AgentState.active;
-    agents[1].shortBubble = 'Critiquing FE';
+    agents[1].shortBubble = '3.8 High Critique';
     walkAgentTo(2, const Offset(220, 520), targetRoom: RoomId.codingBay);
 
     agents[3].state = AgentState.active;
-    agents[3].shortBubble = 'Critiquing BE';
+    agents[3].shortBubble = '3.8 High Critique';
     walkAgentTo(4, const Offset(425, 520), targetRoom: RoomId.codingBay);
 
-    logAgent(1, 'Coding UI inside $sshProjectPath...');
-    logAgent(3, 'Coding backend inside $sshProjectPath...');
-    logAgent(
-      7,
-      '${finalRev.name} (${finalRev.modelName}) monitoring workspace...',
-      addTokens: 80,
-    );
+    logAgent(1, '3.8 Flash (Mid) writing Front-End with $rulesCount learned rules...');
+    logAgent(3, '3.8 Flash (Mid) writing Back-End with $rulesCount learned rules...');
 
     await Future.delayed(const Duration(milliseconds: 2600));
-    await _triggerMidWorkAuditOrQuestion();
+    await _triggerMidCodingAuditOrQuestion();
   }
 
-  Future<void> _triggerMidWorkAuditOrQuestion() async {
-    stage = WorkflowStage.awaitingQuestionOrAudit;
+  Future<void> _triggerMidCodingAuditOrQuestion() async {
+    stage = WorkflowStage.awaitingQuestionOrMidAudit;
     agents[2].state = AgentState.attention;
-    final afkRev = agents[7]; // #8 Offline Reviewer
+    final midAuditor = agents[7]; // #8: 3.1 Pro (Mid / Srednja raven)
 
     if (isDirectorAvailable) {
       pendingQuestionForDirector =
-          '${agents[2].name} (${agents[2].modelName}) asks: Use async stream or local cache inside $sshProjectPath?';
+          '${agents[2].name} [3.8 Flash Mid] asks: Should we persist state via local JSON or SQLite (Decision will be saved to Adaptive Learning)?';
       agents[2].shortBubble = 'Asking Director';
       walkAgentTo(3, const Offset(805, 515), targetRoom: RoomId.directorSuite);
       logAgent(3, 'Walking to Director Shiny VIP Office for decision...');
     } else {
-      agents[2].shortBubble = 'Ask ${afkRev.name}';
-      afkRev.state = AgentState.active;
-      afkRev.shortBubble = 'Auditing Q...';
+      agents[2].shortBubble = 'Mid Audit @ 3.1 Pro';
+      midAuditor.state = AgentState.active;
+      midAuditor.shortBubble = '3.1 Mid Auditing...';
       walkAgentTo(3, const Offset(565, 235), targetRoom: RoomId.afkAuditOffice);
       logAgent(
         3,
-        'Director AFK. Walking to Offline Reviewer ${afkRev.name} (${afkRev.modelName})...',
+        'Director AFK. Walking to ${midAuditor.name} [${midAuditor.modelName}] for mid-coding audit...',
       );
 
       await Future.delayed(const Duration(milliseconds: 3400));
       logAgent(
         8,
-        'Approved async stream with local cache fallback.',
+        '[3.1 Pro Srednja raven] Mid-coding audit complete: Use local JSON with atomic writes.',
       );
       await resolveDirectorQuestion(
-        'Async Stream + Fallback (Approved by ${afkRev.name})',
+        'Atomic Local JSON (Audited by 3.1 Pro Mid)',
+        learnedSource: '3.1 Pro (Mid / Srednja raven)',
       );
     }
   }
 
-  Future<void> resolveDirectorQuestion(String decision) async {
+  Future<void> resolveDirectorQuestion(
+    String decision, {
+    String learnedSource = 'Director Decision',
+  }) async {
     pendingQuestionForDirector = null;
     stage = WorkflowStage.devsAndCriticsWorking;
 
+    // Save the decision into the Adaptive Learning Engine!
+    connections.recordLearnedPattern(
+      category: 'Architecture',
+      ruleText: 'Prefer $decision for state persistence in $sshProjectPath',
+      learnedFrom: learnedSource,
+    );
+
     agents[2].state = AgentState.active;
-    agents[2].shortBubble = 'Typing Fix...';
+    agents[2].shortBubble = '3.8 Mid Applying';
     agents[7].state = AgentState.active;
-    agents[7].shortBubble = 'AFK Auditor';
+    agents[7].shortBubble = '3.1 Pro Mid Ready';
     walkAgentTo(3, agents[2].homePos, targetRoom: RoomId.codingBay);
-    logAgent(3, 'Applied decision: $decision');
+    logAgent(3, 'Applied & learned architecture choice: $decision');
 
     await Future.delayed(const Duration(milliseconds: 2800));
 
+    // Check if Gemini Web tokens are exhausted -> Jules Website takes over!
     if (simulateTokenExhaustion || agents[0].tokenRatio >= 0.95) {
-      await _runOverflowAgentTakeover();
+      await _runJulesWebsiteTakeover();
     }
 
-    agents[1].shortBubble = 'FE Approved!';
-    agents[3].shortBubble = 'BE Approved!';
+    // 3.8 Flash (High) Critics (#2 & #4) approve and return to desks
+    agents[1].shortBubble = '3.8 High Approved!';
+    agents[3].shortBubble = '3.8 High Approved!';
     walkAgentTo(2, agents[1].homePos, targetRoom: RoomId.codingBay);
     walkAgentTo(4, agents[3].homePos, targetRoom: RoomId.codingBay);
-    logAgent(2, '${agents[1].name} approved Front-End changes.');
-    logAgent(4, '${agents[3].name} approved Back-End changes.');
+    logAgent(2, '[3.8 Flash High] Front-End passed strict critique.');
+    logAgent(4, '[3.8 Flash High] Back-End passed strict critique.');
 
     await Future.delayed(const Duration(milliseconds: 1600));
-    await _deliverToFinalReviewerAndRunSsh();
+    await _deliverToArgonHighAndRunSsh();
   }
 
-  Future<void> _runOverflowAgentTakeover() async {
-    stage = WorkflowStage.tokenExhaustedOverflowTakeover;
-    final overflowBot = agents[4]; // #5 Overflow & Git Bot
+  Future<void> _runJulesWebsiteTakeover() async {
+    stage = WorkflowStage.tokenExhaustedJulesTakeover;
+    final julesBot = agents[4]; // #5 Jules (Web)
     for (final id in [1, 2, 3, 4]) {
       final a = agents.firstWhere((ag) => ag.id == id);
       a.tokensUsed = a.tokenLimit;
       a.state = AgentState.sleeping;
-      a.shortBubble = '0 Tokens Left!';
+      a.shortBubble = 'Quota 0% -> Jules';
     }
     _updateStaxTokenReport();
     agents[8].state = AgentState.attention;
-    agents[8].shortBubble = '100% -> ${overflowBot.name}';
+    agents[8].shortBubble = '100% -> Paging Jules';
     logAgent(
       9,
-      'Main coding agents out of tokens! Paging ${overflowBot.name} (${overflowBot.modelName})...',
+      '[3.5 Flash-Lite] Gemini Web quota reached 100%! Handing over to ${julesBot.name} (${julesBot.modelName})...',
       addTokens: 0,
     );
 
-    overflowBot.state = AgentState.active;
-    overflowBot.shortBubble = 'Overflow Takeover';
+    julesBot.state = AgentState.active;
+    julesBot.shortBubble = 'Jules Finishing!';
     walkAgentTo(5, const Offset(320, 490), targetRoom: RoomId.codingBay);
     logAgent(
       5,
-      'Taking over unfinished work using ${overflowBot.modelName}...',
+      '[Jules Website] Completing remaining 3.8 Flash tasks using Jules web session...',
     );
 
     await Future.delayed(const Duration(milliseconds: 2600));
-    walkAgentTo(5, overflowBot.homePos, targetRoom: RoomId.codingBay);
+    walkAgentTo(5, julesBot.homePos, targetRoom: RoomId.codingBay);
     agents[8].state = AgentState.active;
   }
 
-  Future<void> _deliverToFinalReviewerAndRunSsh() async {
-    stage = WorkflowStage.finalCheckAndSsh;
-    final finalRev = agents[6]; // #7 Final Reviewer
+  Future<void> _deliverToArgonHighAndRunSsh() async {
+    stage = WorkflowStage.argonFinalAuditAndSsh;
+    final argonHigh = agents[6]; // #7 Argon (High)
 
-    agents[0].shortBubble = 'To ${finalRev.name}';
-    agents[2].shortBubble = 'To ${finalRev.name}';
+    agents[0].shortBubble = 'To Argon High';
+    agents[2].shortBubble = 'To Argon High';
     walkAgentTo(1, const Offset(235, 235), targetRoom: RoomId.finalReviewOffice);
     walkAgentTo(3, const Offset(315, 235), targetRoom: RoomId.finalReviewOffice);
 
-    finalRev.state = AgentState.active;
-    finalRev.shortBubble = 'SSH Test Run...';
+    argonHigh.state = AgentState.active;
+    argonHigh.shortBubble = 'Argon SSH Audit...';
     logAgent(
       7,
-      'Running merged build via local SSH in $sshProjectPath...',
+      '[Argon High] Running final audit & local SSH test in $sshProjectPath...',
     );
 
     await Future.delayed(const Duration(milliseconds: 3200));
@@ -677,28 +723,35 @@ class OfficeOrchestrator extends ChangeNotifier {
       _sshAttempt++;
       stage = WorkflowStage.sshFailedFixing;
       problemsList.add(
-        '[SSH Test Failure] Analyze warning in $sshProjectPath — Returned to ${agents[0].name}',
+        '[Argon High SSH Audit] Unhandled async exception in $sshProjectPath — Sent back to 3.8 Flash (Mid/High)',
       );
-      finalRev.state = AgentState.attention;
-      finalRev.shortBubble = 'SSH Bug! Fix it';
+      argonHigh.state = AgentState.attention;
+      argonHigh.shortBubble = 'Argon Reject! Fix';
       logAgent(
         7,
-        '[$kernel] SSH test caught a bug! Sending agents back to desks to fix.',
+        '[$kernel][Argon High] Final SSH check caught an error! Returning to 3.8 Flash squad & recording Learning Rule.',
+      );
+
+      connections.recordLearnedPattern(
+        category: 'Critique Fix',
+        ruleText:
+            'Always wrap local Process.run and SSH socket calls in try/catch blocks.',
+        learnedFrom: 'Argon (High) SSH Audit',
       );
 
       agents[0].state = AgentState.active;
       agents[2].state = AgentState.active;
-      agents[0].shortBubble = 'Typing SSH Fix';
-      agents[2].shortBubble = 'Typing SSH Fix';
+      agents[0].shortBubble = '3.8 Mid Fixing';
+      agents[2].shortBubble = '3.8 Mid Fixing';
       walkAgentTo(1, agents[0].homePos, targetRoom: RoomId.codingBay);
       walkAgentTo(3, agents[2].homePos, targetRoom: RoomId.codingBay);
 
       await Future.delayed(const Duration(milliseconds: 3400));
       problemsList.clear();
-      logAgent(2, 'Verified SSH hotfix.');
-      logAgent(4, 'Verified SSH hotfix.');
+      logAgent(2, '[3.8 Flash High] Verified SSH hotfix.');
+      logAgent(4, '[3.8 Flash High] Verified SSH hotfix.');
 
-      await _deliverToFinalReviewerAndRunSsh();
+      await _deliverToArgonHighAndRunSsh();
       return;
     }
 
@@ -706,51 +759,51 @@ class OfficeOrchestrator extends ChangeNotifier {
     agents[1].state = AgentState.done;
     agents[2].state = AgentState.done;
     agents[3].state = AgentState.done;
-    agents[0].shortBubble = 'Done (FE)';
-    agents[2].shortBubble = 'Done (BE)';
+    agents[0].shortBubble = 'Done (3.8 Mid)';
+    agents[2].shortBubble = 'Done (3.8 Mid)';
     walkAgentTo(1, agents[0].homePos, targetRoom: RoomId.codingBay);
     walkAgentTo(3, agents[2].homePos, targetRoom: RoomId.codingBay);
 
-    // Final Reviewer walks to Director Suite to deliver, then walks back to seat!
+    // Argon (High) walks to Director VIP Suite to deliver, then returns to seat!
     stage = WorkflowStage.deliveringToDirector;
-    finalRev.shortBubble = 'Delivering App!';
+    argonHigh.shortBubble = 'Delivering Build!';
     walkAgentTo(7, const Offset(805, 495), targetRoom: RoomId.directorSuite);
     logAgent(
       7,
-      '[$kernel] Local SSH PASSED! Delivering finished build to Director Suite...',
+      '[$kernel][Argon High] Final Audit PASSED! Delivering verified app to Director Suite...',
     );
 
     await Future.delayed(const Duration(milliseconds: 4200));
 
-    finalRev.state = AgentState.done;
-    finalRev.shortBubble = 'Back to Desk';
-    walkAgentTo(7, finalRev.homePos, targetRoom: RoomId.finalReviewOffice);
-    logAgent(7, 'Build delivered to Director. Returning to Final Reviewer seat.');
+    argonHigh.state = AgentState.done;
+    argonHigh.shortBubble = 'Back to Seat';
+    walkAgentTo(7, argonHigh.homePos, targetRoom: RoomId.finalReviewOffice);
+    logAgent(7, 'Delivered build to Director. Returning to Argon High seat.');
 
-    // Overflow/Git Bot commits everything to the cloned repo branch
-    stage = WorkflowStage.committingToGit;
-    final gitBot = agents[4];
-    gitBot.state = AgentState.active;
-    gitBot.shortBubble = 'git commit & push';
+    // Jules (#5) commits everything to the Git branch
+    stage = WorkflowStage.julesCommittingToGit;
+    final julesBot = agents[4];
+    julesBot.state = AgentState.active;
+    julesBot.shortBubble = 'Jules Git Push';
     walkAgentTo(5, const Offset(540, 495), targetRoom: RoomId.codingBay);
 
     final hash = (100000 + Random().nextInt(899999)).toRadixString(16);
     gitCommitHistory.insert(
       0,
-      '$hash (HEAD -> $activeGitBranch) feat: "$currentMission" [by ${gitBot.name}]',
+      '$hash (HEAD -> $activeGitBranch) feat: "$currentMission" [Argon High + Jules Web]',
     );
     logAgent(
       5,
-      'Committed & pushed $hash in $sshProjectPath ($activeGitBranch)',
+      '[Jules Website] Committed & pushed $hash in $sshProjectPath ($activeGitBranch)',
     );
 
     await Future.delayed(const Duration(milliseconds: 2800));
 
-    walkAgentTo(5, gitBot.homePos, targetRoom: RoomId.codingBay);
-    gitBot.state = AgentState.done;
-    gitBot.shortBubble = 'Committed #$hash';
-    finalRev.state = AgentState.active;
-    finalRev.shortBubble = 'Final SSH Ready';
+    walkAgentTo(5, julesBot.homePos, targetRoom: RoomId.codingBay);
+    julesBot.state = AgentState.done;
+    julesBot.shortBubble = 'Pushed #$hash';
+    argonHigh.state = AgentState.active;
+    argonHigh.shortBubble = 'Argon High Ready';
     stage = WorkflowStage.completed;
     notifyListeners();
   }

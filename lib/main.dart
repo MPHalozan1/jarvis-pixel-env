@@ -4,8 +4,9 @@ import 'backend/office_orchestrator.dart';
 import 'frontend/office_workspace_ui.dart';
 
 //**********************************************************************
-// JARVIS_V2 (OPEN SOURCE) // APPLICATION ENTRY POINT                  *
-// Initializes the Backend ConnectionsManager and OfficeOrchestrator.  *
+// JARVIS PIXEL ENV // APPLICATION ENTRY POINT                         *
+// Uses a sleek modern sans-serif UI theme for all surrounding panels  *
+// while keeping the 2D Office Canvas strictly pixelated.              *
 //**********************************************************************
 
 void main() {
@@ -21,7 +22,7 @@ class JarvisV2OpenSourceApp extends StatefulWidget {
 }
 
 class _JarvisV2OpenSourceAppState extends State<JarvisV2OpenSourceApp> {
-  // True = Obsidian Dark Mode, False = Studio Daylight Mode
+  // True = Sleek Navy Dark Mode, False = Crisp Daylight Mode
   bool _isDarkMode = true;
   late final ConnectionsManager _connections;
   late final OfficeOrchestrator _orchestrator;
@@ -43,12 +44,14 @@ class _JarvisV2OpenSourceAppState extends State<JarvisV2OpenSourceApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'jarvis_v2 // Open-Source Multi-Agent Pixel Studio',
+      title: 'jarvis-pixel-env // Sleek Control Deck & Pixel Office',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
         brightness: _isDarkMode ? Brightness.dark : Brightness.light,
-        fontFamily: 'monospace',
+        colorSchemeSeed: const Color(0xFF00D2FF),
+        scaffoldBackgroundColor:
+            _isDarkMode ? const Color(0xFF111524) : const Color(0xFFF1F5F9),
       ),
       home: OfficeWorkspaceScreen(
         connections: _connections,

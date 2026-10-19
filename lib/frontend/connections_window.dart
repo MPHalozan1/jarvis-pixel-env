@@ -1,24 +1,28 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import '../backend/connections_manager.dart';
 
 //**********************************************************************
-// CONNECTIONS, MODEL ROLE MAPPER & GITHUB DESKTOP CLONER WINDOW       *
-// Interactive 3-Tab Management Window:                                *
-// Tab 1: Provider Sign-In (Paste URL/Token, Sign In Locally)          *
-// Tab 2: Role & Model Assignment (Rename agents & pick any model)     *
-// Tab 3: GitHub Repo Browser (Select repo -> Clone to ~/Desktop)      *
+// SLEEK CONTROL-DECK MANAGEMENT WINDOW (ZERO ANALYZER WARNINGS)       *
+// Styled after the Dark-Navy / Neon-Pink / Electric-Cyan UI reference:*
+// - Top Notification Pill ("Notification: Operation complete!")       *
+// - Breadcrumb Category Navigation (01 > 02 > 03 > 04)                *
+// - Glowing Pink & Cyan "Login" / "Choose" / "Details" Pill Buttons   *
+// - Adjustment Sliders with White-Ring Thumbs & Segmented Meters      *
 //**********************************************************************
 
 class ConnectionsManagementWindow extends StatefulWidget {
   final ConnectionsManager connections;
   final bool isDarkMode;
   final VoidCallback onClose;
+  final int initialTab;
 
   const ConnectionsManagementWindow({
     super.key,
     required this.connections,
     required this.isDarkMode,
     required this.onClose,
+    this.initialTab = 0,
   });
 
   @override
@@ -27,139 +31,247 @@ class ConnectionsManagementWindow extends StatefulWidget {
 }
 
 class _ConnectionsManagementWindowState
-    extends State<ConnectionsManagementWindow> {
-  int _activeTab = 0; // 0 = Providers Sign-In, 1 = Role/Model Mapper, 2 = GitHub Repos
+    extends State<ConnectionsManagementWindow>
+    with SingleTickerProviderStateMixin {
+  static const Color _navyBg = Color(0xFF171B2D);
+  static const Color _cardBg = Color(0xFF1F253D);
+  static const Color _cardBorder = Color(0xFF343D5E);
+  static const Color _neonPink = Color(0xFFF43F5E);
+  static const Color _neonCyan = Color(0xFF00D2FF);
+
+  late int _activeTab;
+  late final AnimationController _spinnerController;
+
+  // Persistent controllers so typing never resets
+  final Map<String, TextEditingController> _urlControllers = {};
+  final Map<String, TextEditingController> _addModelControllers = {};
+  late final TextEditingController _ghUrlController;
   late final TextEditingController _ghUserController;
   late final TextEditingController _ghTokenController;
-  late final TextEditingController _ghUrlController;
+  final TextEditingController _newRuleController = TextEditingController();
+  final String _newRuleCategory = 'Code Style';
 
   @override
   void initState() {
     super.initState();
+    _activeTab = widget.initialTab;
+    _spinnerController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat();
+
+    for (final p in widget.connections.providers) {
+      _urlControllers[p.id] = TextEditingController(text: p.websiteUrl);
+      _addModelControllers[p.id] = TextEditingController();
+    }
+    _ghUrlController =
+        TextEditingController(text: widget.connections.githubUrl);
     _ghUserController =
         TextEditingController(text: widget.connections.githubUsername);
     _ghTokenController =
         TextEditingController(text: widget.connections.githubToken);
-    _ghUrlController =
-        TextEditingController(text: widget.connections.githubUrl);
   }
 
   @override
   void dispose() {
+    _spinnerController.dispose();
+    for (final c in _urlControllers.values) {
+      c.dispose();
+    }
+    for (final c in _addModelControllers.values) {
+      c.dispose();
+    }
+    _ghUrlController.dispose();
     _ghUserController.dispose();
     _ghTokenController.dispose();
-    _ghUrlController.dispose();
+    _newRuleController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = widget.isDarkMode;
-    final bg = isDark ? const Color(0xFF10131C) : Colors.white;
-    final border = isDark ? const Color(0xFF283046) : const Color(0xFFCBD5E1);
-
     return ListenableBuilder(
       listenable: widget.connections,
-      builder: (context, _) {
+      builder: (context, child) {
         final conn = widget.connections;
 
         return Container(
-          width: 780,
-          height: 540,
+          width: 880,
+          height: 590,
           decoration: BoxDecoration(
-            color: bg,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFF38BDF8), width: 1.8),
+            color: _navyBg.withValues(alpha: 0.98),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: _cardBorder, width: 1.5),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.6),
-                blurRadius: 28,
+                color: Colors.black.withValues(alpha: 0.65),
+                blurRadius: 36,
+                offset: const Offset(0, 14),
               ),
             ],
           ),
           child: Column(
             children: [
-              // Window Header & Navigation Tabs
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? const Color(0xFF0B0D14)
-                      : const Color(0xFFF1F5F9),
-                  borderRadius:
-                      const BorderRadius.vertical(top: Radius.circular(11)),
-                  border: Border(bottom: BorderSide(color: border)),
-                ),
-                child: Row(
+              // 1. TOP NOTIFICATION BANNER + BREADCRUMB NAVIGATION
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
+                child: Column(
                   children: [
-                    const Icon(Icons.hub, size: 18, color: Color(0xFF38BDF8)),
-                    const SizedBox(width: 8),
-                    const Text(
-                      'CONNECTIONS, MODEL MAPPER & GITHUB CLONER',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w900,
-                      ),
+                    Row(
+                      children: [
+                        // Sleek Notification Banner
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFF212742), Color(0xFF191E33)],
+                              ),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: _cardBorder),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 28,
+                                  height: 28,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: _neonPink,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  child: const Icon(
+                                    Icons.check,
+                                    size: 16,
+                                    color: _neonPink,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  conn.lastNotificationTitle,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    fontStyle: FontStyle.italic,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    conn.statusMessage,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Color(0xFF94A3B8),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        // Close Button
+                        InkWell(
+                          onTap: widget.onClose,
+                          borderRadius: BorderRadius.circular(10),
+                          child: Container(
+                            width: 42,
+                            height: 42,
+                            decoration: BoxDecoration(
+                              color: _cardBg,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: _neonPink.withValues(alpha: 0.7),
+                              ),
+                            ),
+                            child: const Icon(
+                              Icons.close,
+                              color: _neonPink,
+                              size: 20,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                    const Spacer(),
-                    _buildTabButton(0, '1. Provider Sign-In', Icons.login),
-                    const SizedBox(width: 6),
-                    _buildTabButton(1, '2. Role & Model Map', Icons.people_alt),
-                    const SizedBox(width: 6),
-                    _buildTabButton(2, '3. GitHub -> Desktop', Icons.folder_copy),
-                    const SizedBox(width: 10),
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      onPressed: widget.onClose,
-                      icon: const Icon(Icons.close, size: 18),
+                    const SizedBox(height: 14),
+
+                    // Category 01 > Category 02 > Category 03 > Category 04 Breadcrumbs
+                    Row(
+                      children: [
+                        _buildBreadcrumbTab(
+                          0,
+                          '01',
+                          'AI Websites Sign-In',
+                          _neonCyan,
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 10),
+                          child: Icon(
+                            Icons.chevron_right,
+                            size: 18,
+                            color: _neonPink,
+                          ),
+                        ),
+                        _buildBreadcrumbTab(
+                          1,
+                          '02',
+                          'Model Hierarchy',
+                          _neonPink,
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 10),
+                          child: Icon(
+                            Icons.chevron_right,
+                            size: 18,
+                            color: _neonPink,
+                          ),
+                        ),
+                        _buildBreadcrumbTab(
+                          2,
+                          '03',
+                          'GitHub Cloner',
+                          _neonCyan,
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 10),
+                          child: Icon(
+                            Icons.chevron_right,
+                            size: 18,
+                            color: _neonPink,
+                          ),
+                        ),
+                        _buildBreadcrumbTab(
+                          3,
+                          '04',
+                          'Sliders & Learning (${conn.learnedRules.length})',
+                          _neonPink,
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
 
-              // Main Tab Content Body
+              const Divider(color: _cardBorder, height: 1),
+
+              // 2. MAIN CONTENT AREA
               Expanded(
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(20),
                   child: _activeTab == 0
-                      ? _buildProvidersSignInTab(conn, isDark, border)
-                      : (_activeTab == 1
-                          ? _buildRoleAndModelMapperTab(conn, isDark, border)
-                          : _buildGithubClonerTab(conn, isDark, border)),
-                ),
-              ),
-
-              // Status Footer
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  border: Border(top: BorderSide(color: border)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.info_outline,
-                      size: 14,
-                      color: Color(0xFF38BDF8),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        conn.statusMessage,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 10.5),
-                      ),
-                    ),
-                    Text(
-                      'Desktop Dir: ${conn.desktopProjectsRoot}',
-                      style: const TextStyle(
-                        fontSize: 10,
-                        color: Color(0xFF22C55E),
-                      ),
-                    ),
-                  ],
+                      ? _buildTab1Websites(conn)
+                      : _activeTab == 1
+                          ? _buildTab2ModelHierarchy(conn)
+                          : _activeTab == 2
+                              ? _buildTab3GithubCloner(conn)
+                              : _buildTab4SlidersAndLearning(conn),
                 ),
               ),
             ],
@@ -169,31 +281,52 @@ class _ConnectionsManagementWindowState
     );
   }
 
-  Widget _buildTabButton(int index, String label, IconData icon) {
+  Widget _buildBreadcrumbTab(
+    int index,
+    String badgeNum,
+    String title,
+    Color accentColor,
+  ) {
     final isSel = _activeTab == index;
     return InkWell(
       onTap: () => setState(() => _activeTab = index),
-      borderRadius: BorderRadius.circular(6),
+      borderRadius: BorderRadius.circular(8),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
         decoration: BoxDecoration(
           color: isSel
-              ? const Color(0xFF2563EB).withValues(alpha: 0.25)
+              ? accentColor.withValues(alpha: 0.16)
               : Colors.transparent,
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: isSel ? const Color(0xFF38BDF8) : Colors.transparent,
+            color: isSel ? accentColor : Colors.transparent,
           ),
         ),
         child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 13, color: const Color(0xFF38BDF8)),
-            const SizedBox(width: 5),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: isSel ? accentColor : const Color(0xFF28304D),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                badgeNum,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  color: isSel ? Colors.black : Colors.white70,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
             Text(
-              label,
+              title,
               style: TextStyle(
-                fontSize: 10.5,
-                fontWeight: isSel ? FontWeight.bold : FontWeight.normal,
+                fontSize: 12.5,
+                fontWeight: isSel ? FontWeight.w700 : FontWeight.w500,
+                color: isSel ? Colors.white : const Color(0xFF94A3B8),
               ),
             ),
           ],
@@ -203,118 +336,194 @@ class _ConnectionsManagementWindowState
   }
 
   //********************************************************************
-  // TAB 1: UNIVERSAL PROVIDER SIGN-IN                                 *
+  // TAB 1: SLEEK WEBSITE LOGIN CARDS (GEMINI, JULES, GITHUB)          *
   //********************************************************************
-  Widget _buildProvidersSignInTab(
-    ConnectionsManager conn,
-    bool isDark,
-    Color border,
-  ) {
+  Widget _buildTab1Websites(ConnectionsManager conn) {
     return ListView.builder(
       itemCount: conn.providers.length,
       itemBuilder: (context, i) {
         final p = conn.providers[i];
-        final urlCtrl = TextEditingController(text: p.loginUrl);
-        final keyCtrl = TextEditingController(text: p.apiKeyOrSession);
+        final urlCtrl = _urlControllers[p.id]!;
+        final addModelCtrl = _addModelControllers[p.id]!;
+        final isPink = i % 2 == 1;
+        final accent = isPink ? _neonPink : _neonCyan;
 
         return Container(
-          margin: const EdgeInsets.only(bottom: 10),
-          padding: const EdgeInsets.all(12),
+          margin: const EdgeInsets.only(bottom: 14),
+          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF161A28) : const Color(0xFFF8FAFC),
-            borderRadius: BorderRadius.circular(8),
-            border: Border(
-              left: BorderSide(color: p.brandColor, width: 4),
-            ),
+            color: _cardBg,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: _cardBorder),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  Text(
-                    p.name,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    width: 14,
+                    height: 14,
                     decoration: BoxDecoration(
-                      color: (p.isSignedIn
-                              ? const Color(0xFF22C55E)
-                              : const Color(0xFFF59E0B))
-                          .withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(4),
+                      shape: BoxShape.circle,
+                      color: p.isSignedIn ? accent : Colors.transparent,
+                      border: Border.all(color: accent, width: 2),
+                      boxShadow: p.isSignedIn
+                          ? [
+                              BoxShadow(
+                                color: accent.withValues(alpha: 0.6),
+                                blurRadius: 8,
+                              ),
+                            ]
+                          : null,
                     ),
-                    child: Text(
-                      p.isSignedIn ? 'SIGNED IN LOCALLY' : 'NOT SIGNED IN',
-                      style: TextStyle(
-                        fontSize: 9.5,
-                        fontWeight: FontWeight.bold,
-                        color: p.isSignedIn
-                            ? const Color(0xFF22C55E)
-                            : const Color(0xFFF59E0B),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          p.name,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                        Text(
+                          p.websiteUrl,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontStyle: FontStyle.italic,
+                            color: Color(0xFF94A3B8),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Animated Radial Spinner when Signing In
+                  if (p.isSigningIn)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 12),
+                      child: SizedBox(
+                        width: 28,
+                        height: 28,
+                        child: AnimatedBuilder(
+                          animation: _spinnerController,
+                          builder: (context, child) => CustomPaint(
+                            painter: NeonRadialSpinnerPainter(
+                              progress: _spinnerController.value,
+                              color: accent,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  // Sleek "Login" Button
+                  InkWell(
+                    onTap: () => conn.signInToWebsite(
+                      p.id,
+                      customWebsiteUrl: urlCtrl.text,
+                    ),
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 9,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _navyBg,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: accent, width: 1.4),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.person_outline, size: 17, color: accent),
+                          const SizedBox(width: 8),
+                          Text(
+                            p.isSignedIn ? 'Open Session' : 'Login',
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
-                  const Spacer(),
-                  if (p.isSignedIn)
-                    TextButton(
-                      onPressed: () => conn.signOutProvider(p.id),
-                      child: const Text(
-                        'Sign Out',
-                        style: TextStyle(fontSize: 10.5, color: Colors.redAccent),
-                      ),
-                    ),
-                  ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: p.brandColor,
-                      foregroundColor: Colors.black,
-                      minimumSize: const Size(0, 30),
-                    ),
-                    onPressed: () => conn.signInToProvider(
+                  const SizedBox(width: 8),
+                  // Glowing Pill Button
+                  InkWell(
+                    onTap: () => conn.signInToWebsite(
                       p.id,
-                      customUrl: urlCtrl.text,
-                      tokenInput: keyCtrl.text,
+                      customWebsiteUrl: urlCtrl.text,
                     ),
-                    icon: const Icon(Icons.login, size: 14),
-                    label: Text(
-                      p.isSignedIn ? 'Re-Authenticate' : 'Sign In Locally',
-                      style: const TextStyle(
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.bold,
+                    borderRadius: BorderRadius.circular(20),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 9,
+                      ),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: isPink
+                              ? [const Color(0xFFEC4899), const Color(0xFFE11D48)]
+                              : [const Color(0xFF00D2FF), const Color(0xFF0284C7)],
+                        ),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        p.isSignedIn ? 'Connected' : 'Verify',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               Row(
                 children: [
                   Expanded(
+                    flex: 3,
                     child: TextField(
                       controller: urlCtrl,
-                      style: const TextStyle(fontSize: 11),
-                      decoration: const InputDecoration(
-                        labelText: 'Connection / Sign-In URL',
+                      style: const TextStyle(fontSize: 12.5),
+                      decoration: InputDecoration(
+                        labelText: 'Official Website Link',
                         isDense: true,
+                        filled: true,
+                        fillColor: const Color(0xFF151929),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 12),
                   Expanded(
+                    flex: 2,
                     child: TextField(
-                      controller: keyCtrl,
-                      obscureText: true,
-                      style: const TextStyle(fontSize: 11),
+                      controller: addModelCtrl,
+                      style: const TextStyle(fontSize: 12.5),
+                      onSubmitted: (v) {
+                        conn.addCustomModelToWebsite(p.id, v);
+                        addModelCtrl.clear();
+                      },
                       decoration: InputDecoration(
-                        labelText:
-                            'Optional API Key / Session (${p.cliCommand})',
+                        labelText: 'Add Model Name (Press Enter)',
                         isDense: true,
+                        filled: true,
+                        fillColor: const Color(0xFF151929),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
                     ),
                   ),
@@ -328,101 +537,122 @@ class _ConnectionsManagementWindowState
   }
 
   //********************************************************************
-  // TAB 2: ROLE & MODEL MAPPER (RENAME & SWAP ANY AGENT'S MODEL)      *
+  // TAB 2: MODEL HIERARCHY MAPPER (USES initialValue WITH ValueKey)   *
   //********************************************************************
-  Widget _buildRoleAndModelMapperTab(
-    ConnectionsManager conn,
-    bool isDark,
-    Color border,
-  ) {
+  Widget _buildTab2ModelHierarchy(ConnectionsManager conn) {
     final entries = conn.roleAssignments.values.toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 1-Click Quick Preset Bar for Coding Agents
         Row(
           children: [
-            const Text(
-              'Quick Swap 4 Coding/Critic Desks:',
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+            const Expanded(
+              child: Text(
+                'Argon High (Final)  •  3.1 Pro Mid (Srednja Audit)  •  3.8 Flash Mid (Coders)  •  3.8 Flash High (Critiques)  •  Jules (Overflow)',
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF94A3B8),
+                ),
+              ),
             ),
-            const SizedBox(width: 10),
-            OutlinedButton.icon(
-              onPressed: () => conn.swapAllCodingAgentsTo('codex_cli'),
-              icon: const Icon(Icons.terminal, size: 14),
-              label: const Text('Use OpenAI Codex', style: TextStyle(fontSize: 10.5)),
-            ),
-            const SizedBox(width: 8),
-            OutlinedButton.icon(
-              onPressed: () => conn.swapAllCodingAgentsTo('claude_code_cli'),
-              icon: const Icon(Icons.bolt, size: 14),
-              label: const Text('Use Claude Code CLI', style: TextStyle(fontSize: 10.5)),
-            ),
-            const SizedBox(width: 8),
-            OutlinedButton.icon(
-              onPressed: () => conn.swapAllCodingAgentsTo('custom_provider'),
-              icon: const Icon(Icons.memory, size: 14),
-              label: const Text('Use Local Ollama', style: TextStyle(fontSize: 10.5)),
+            const SizedBox(width: 12),
+            InkWell(
+              onTap: conn.applyGeminiWebPreset,
+              borderRadius: BorderRadius.circular(20),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFEC4899), Color(0xFFE11D48)],
+                  ),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Text(
+                  'Reset Default Hierarchy',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
             ),
           ],
         ),
-        const Divider(height: 18),
+        const SizedBox(height: 12),
         Expanded(
           child: ListView.builder(
             itemCount: entries.length,
             itemBuilder: (context, i) {
               final role = entries[i];
               final currentProv = conn.getProviderById(role.providerId);
+              final activeModel = currentProv.availableModels
+                      .contains(role.selectedModel)
+                  ? role.selectedModel
+                  : currentProv.availableModels.first;
 
               return Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
-                  color: isDark
-                      ? const Color(0xFF161A28)
-                      : const Color(0xFFF8FAFC),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: border),
+                  color: _cardBg,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: _cardBorder),
                 ),
                 child: Row(
                   children: [
-                    SizedBox(
-                      width: 185,
-                      child: Text(
-                        role.roleTitle,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    // Custom Character Name Field
-                    SizedBox(
-                      width: 140,
-                      child: TextFormField(
-                        initialValue: role.characterName,
-                        style: const TextStyle(fontSize: 11),
-                        decoration: const InputDecoration(
-                          labelText: 'Agent Name',
-                          isDense: true,
-                        ),
-                        onFieldSubmitted: (v) => conn.updateRoleAssignment(
-                          role.slot,
-                          newName: v,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    // Provider Dropdown
+                    // Role Title
                     Expanded(
+                      flex: 3,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            role.roleTitle,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          ),
+                          Text(
+                            'Agent: ${role.characterName}',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontStyle: FontStyle.italic,
+                              color: Color(0xFF94A3B8),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    // Website Provider Dropdown
+                    Expanded(
+                      flex: 3,
                       child: DropdownButtonFormField<String>(
-                        value: role.providerId,
+                        key: ValueKey('prov_${role.slot.name}_${role.providerId}'),
+                        initialValue: role.providerId,
+                        isExpanded: true,
                         isDense: true,
-                        decoration: const InputDecoration(
-                          labelText: 'Connection Provider',
+                        decoration: InputDecoration(
+                          labelText: 'AI Website',
                           isDense: true,
+                          filled: true,
+                          fillColor: const Color(0xFF151929),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
                         ),
                         items: conn.providers
                             .map(
@@ -431,7 +661,7 @@ class _ConnectionsManagementWindowState
                                 child: Text(
                                   p.name,
                                   overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 10.5),
+                                  style: const TextStyle(fontSize: 11.5),
                                 ),
                               ),
                             )
@@ -446,18 +676,23 @@ class _ConnectionsManagementWindowState
                         },
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    // Model Dropdown for Chosen Provider
+                    const SizedBox(width: 10),
+                    // Assigned Model Dropdown
                     Expanded(
+                      flex: 3,
                       child: DropdownButtonFormField<String>(
-                        value: currentProv.availableModels
-                                .contains(role.selectedModel)
-                            ? role.selectedModel
-                            : currentProv.availableModels.first,
+                        key: ValueKey('mod_${role.slot.name}_$activeModel'),
+                        initialValue: activeModel,
+                        isExpanded: true,
                         isDense: true,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'Assigned Model',
                           isDense: true,
+                          filled: true,
+                          fillColor: const Color(0xFF151929),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
                         ),
                         items: currentProv.availableModels
                             .map(
@@ -466,7 +701,7 @@ class _ConnectionsManagementWindowState
                                 child: Text(
                                   m,
                                   overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 10.5),
+                                  style: const TextStyle(fontSize: 11.5),
                                 ),
                               ),
                             )
@@ -492,119 +727,169 @@ class _ConnectionsManagementWindowState
   }
 
   //********************************************************************
-  // TAB 3: GITHUB REPO BROWSER & ONE-CLICK DESKTOP FOLDER CLONER      *
+  // TAB 3: GITHUB SIGN-IN (https://github.com/) & DESKTOP CLONER      *
   //********************************************************************
-  Widget _buildGithubClonerTab(
-    ConnectionsManager conn,
-    bool isDark,
-    Color border,
-  ) {
+  Widget _buildTab3GithubCloner(ConnectionsManager conn) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // GitHub Sign-In & Fetch Row
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _ghUrlController,
-                style: const TextStyle(fontSize: 11),
-                decoration: const InputDecoration(
-                  labelText: 'Git Website URL',
-                  isDense: true,
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: _cardBg,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: _cardBorder),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                flex: 2,
+                child: TextField(
+                  controller: _ghUrlController,
+                  style: const TextStyle(fontSize: 12),
+                  decoration: InputDecoration(
+                    labelText: 'GitHub Website',
+                    isDense: true,
+                    filled: true,
+                    fillColor: const Color(0xFF151929),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: TextField(
-                controller: _ghUserController,
-                style: const TextStyle(fontSize: 11),
-                decoration: const InputDecoration(
-                  labelText: 'GitHub Username / Org',
-                  isDense: true,
+              const SizedBox(width: 10),
+              Expanded(
+                flex: 2,
+                child: TextField(
+                  controller: _ghUserController,
+                  style: const TextStyle(fontSize: 12),
+                  decoration: InputDecoration(
+                    labelText: 'GitHub Username',
+                    isDense: true,
+                    filled: true,
+                    fillColor: const Color(0xFF151929),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: TextField(
-                controller: _ghTokenController,
-                obscureText: true,
-                style: const TextStyle(fontSize: 11),
-                decoration: const InputDecoration(
-                  labelText: 'Personal Access Token (Optional)',
-                  isDense: true,
+              const SizedBox(width: 10),
+              Expanded(
+                flex: 2,
+                child: TextField(
+                  controller: _ghTokenController,
+                  obscureText: true,
+                  style: const TextStyle(fontSize: 12),
+                  decoration: InputDecoration(
+                    labelText: 'Optional PAT Token',
+                    isDense: true,
+                    filled: true,
+                    fillColor: const Color(0xFF151929),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(width: 10),
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2563EB),
-                foregroundColor: Colors.white,
-                minimumSize: const Size(0, 36),
-              ),
-              onPressed: conn.isFetchingRepos
-                  ? null
-                  : () => conn.connectAndFetchGithubRepos(
-                        username: _ghUserController.text,
-                        token: _ghTokenController.text,
-                        customGitWebsite: _ghUrlController.text,
+              const SizedBox(width: 10),
+              // Login to https://github.com/ Button
+              InkWell(
+                onTap: conn.signInToGithubOnWeb,
+                borderRadius: BorderRadius.circular(10),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF151929),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: _neonCyan),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.person_outline, size: 16, color: _neonCyan),
+                      SizedBox(width: 6),
+                      Text(
+                        'Login Web',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-              icon: const Icon(Icons.cloud_download, size: 15),
-              label: Text(
-                conn.isFetchingRepos ? 'Loading...' : 'Sign In & Fetch Repos',
-                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                    ],
+                  ),
+                ),
               ),
-            ),
-          ],
+              const SizedBox(width: 8),
+              // Fetch Repos Pill Button
+              InkWell(
+                onTap: conn.isFetchingRepos
+                    ? null
+                    : () => conn.connectAndFetchGithubRepos(
+                          username: _ghUserController.text,
+                          token: _ghTokenController.text,
+                          customGitWebsite: _ghUrlController.text,
+                        ),
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF00D2FF), Color(0xFF0284C7)],
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    conn.isFetchingRepos ? 'Syncing...' : 'Fetch Repos',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
-        const SizedBox(height: 12),
-
-        // Repository List
+        const SizedBox(height: 14),
         Expanded(
           child: ListView.builder(
             itemCount: conn.repositories.length,
             itemBuilder: (context, i) {
               final repo = conn.repositories[i];
-              final isActive = conn.activeProjectRepo?.fullName == repo.fullName;
+              final isActive =
+                  conn.activeProjectRepo?.fullName == repo.fullName;
 
               return Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.all(12),
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: isActive
-                      ? const Color(0xFF22C55E).withValues(alpha: 0.12)
-                      : (isDark
-                          ? const Color(0xFF161A28)
-                          : const Color(0xFFF8FAFC)),
-                  borderRadius: BorderRadius.circular(8),
+                  color: _cardBg,
+                  borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: isActive ? const Color(0xFF22C55E) : border,
-                    width: isActive ? 1.6 : 1.0,
+                    color: isActive ? _neonCyan : _cardBorder,
+                    width: isActive ? 1.8 : 1.0,
                   ),
                 ),
                 child: Row(
                   children: [
-                    Icon(
-                      repo.isClonedToDesktop
-                          ? Icons.folder_special
-                          : Icons.book_outlined,
-                      color: repo.isClonedToDesktop
-                          ? const Color(0xFF22C55E)
-                          : const Color(0xFF38BDF8),
-                    ),
-                    const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '${repo.fullName} (${repo.defaultBranch})',
+                            repo.fullName,
                             style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
                             ),
                           ),
                           const SizedBox(height: 2),
@@ -613,45 +898,51 @@ class _ConnectionsManagementWindowState
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              fontSize: 10.5,
-                              color: Colors.grey,
+                              fontSize: 12,
+                              fontStyle: FontStyle.italic,
+                              color: Color(0xFF94A3B8),
                             ),
                           ),
                           if (repo.localDesktopPath != null)
-                            Text(
-                              'Desktop Folder: ${repo.localDesktopPath}',
-                              style: const TextStyle(
-                                fontSize: 10,
-                                color: Color(0xFF22C55E),
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Text(
+                                'Desktop Folder: ${repo.localDesktopPath}',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: _neonCyan,
+                                ),
                               ),
                             ),
                         ],
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: isActive
-                            ? const Color(0xFF22C55E)
-                            : const Color(0xFF38BDF8),
-                        foregroundColor: Colors.black,
-                      ),
-                      onPressed: conn.isCloningRepo
+                    const SizedBox(width: 12),
+                    InkWell(
+                      onTap: conn.isCloningRepo
                           ? null
                           : () => conn.cloneAndSelectRepoOnDesktop(repo),
-                      icon: Icon(
-                        isActive ? Icons.check_circle : Icons.download_for_offline,
-                        size: 15,
-                      ),
-                      label: Text(
-                        isActive
-                            ? 'Assigned on Desktop'
-                            : (repo.isClonedToDesktop
-                                ? 'Assign Agents'
-                                : 'Clone to Desktop & Assign'),
-                        style: const TextStyle(
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.bold,
+                      borderRadius: BorderRadius.circular(20),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 18,
+                          vertical: 9,
+                        ),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: isActive
+                                ? [const Color(0xFFEC4899), const Color(0xFFE11D48)]
+                                : [const Color(0xFF00D2FF), const Color(0xFF0284C7)],
+                          ),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          isActive ? 'Assigned' : 'Choose & Clone',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
                         ),
                       ),
                     ),
@@ -664,4 +955,362 @@ class _ConnectionsManagementWindowState
       ],
     );
   }
+
+  //********************************************************************
+  // TAB 4: ADJUSTMENT SLIDERS & ADAPTIVE LEARNING                     *
+  //********************************************************************
+  Widget _buildTab4SlidersAndLearning(ConnectionsManager conn) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Left Column: Adjustment Sliders Card
+        Expanded(
+          flex: 4,
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: _cardBg,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: _cardBorder),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Adjustment Sliders',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                _buildNeonSliderRow(
+                  label: '3.8 Flash High Critique Strictness',
+                  value: conn.critiqueStrictness,
+                  min: 0.4,
+                  max: 1.0,
+                  activeColor: _neonPink,
+                  leftTag: '4.0',
+                  rightTag: (conn.critiqueStrictness * 10).toStringAsFixed(1),
+                  onChanged: (v) => conn.updateSliders(strictness: v),
+                ),
+                const SizedBox(height: 12),
+                _buildNeonSliderRow(
+                  label: 'Jules Session Quota Trigger',
+                  value: conn.tokenQuotaThreshold,
+                  min: 0.5,
+                  max: 1.0,
+                  activeColor: _neonCyan,
+                  leftTag: '50%',
+                  rightTag: '${(conn.tokenQuotaThreshold * 100).round()}%',
+                  onChanged: (v) => conn.updateSliders(quotaThreshold: v),
+                ),
+                const SizedBox(height: 12),
+                _buildNeonSliderRow(
+                  label: 'Pixel Agent Walk Speed',
+                  value: conn.agentWalkSpeedMultiplier,
+                  min: 0.5,
+                  max: 2.0,
+                  activeColor: const Color(0xFFA855F7),
+                  leftTag: '0.5x',
+                  rightTag: '${conn.agentWalkSpeedMultiplier.toStringAsFixed(1)}x',
+                  onChanged: (v) => conn.updateSliders(speedMultiplier: v),
+                ),
+                const Spacer(),
+                Row(
+                  children: [
+                    Expanded(
+                      child: InkWell(
+                        onTap: () => conn.updateSliders(
+                          strictness: 0.85,
+                          quotaThreshold: 0.90,
+                          speedMultiplier: 1.0,
+                        ),
+                        borderRadius: BorderRadius.circular(10),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFFEC4899), Color(0xFFE11D48)],
+                            ),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Text(
+                            'Details / Reset',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: InkWell(
+                        onTap: () => setState(
+                          () => conn.autoLearnEnabled = !conn.autoLearnEnabled,
+                        ),
+                        borderRadius: BorderRadius.circular(10),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF151929),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: _cardBorder),
+                          ),
+                          child: Text(
+                            conn.autoLearnEnabled
+                                ? 'Auto-Learn: ON'
+                                : 'Auto-Learn: OFF',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 16),
+
+        // Right Column: Learned Rules List
+        Expanded(
+          flex: 6,
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: _cardBg,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: _cardBorder),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _newRuleController,
+                        style: const TextStyle(fontSize: 12),
+                        onSubmitted: (v) {
+                          conn.recordLearnedPattern(
+                            category: _newRuleCategory,
+                            ruleText: v,
+                            learnedFrom: 'Director Manual Input',
+                          );
+                          _newRuleController.clear();
+                        },
+                        decoration: InputDecoration(
+                          hintText: 'Teach new rule to 3.8 Flash & 3.1 Pro...',
+                          isDense: true,
+                          filled: true,
+                          fillColor: const Color(0xFF151929),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    InkWell(
+                      onTap: () {
+                        conn.recordLearnedPattern(
+                          category: _newRuleCategory,
+                          ruleText: _newRuleController.text,
+                          learnedFrom: 'Director Manual Input',
+                        );
+                        _newRuleController.clear();
+                      },
+                      borderRadius: BorderRadius.circular(20),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF00D2FF), Color(0xFF0284C7)],
+                          ),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Text(
+                          'Add Rule',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: conn.learnedRules.length,
+                    itemBuilder: (context, i) {
+                      final r = conn.learnedRules[i];
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF151929),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: _cardBorder),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    r.ruleText,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '${r.category} • ${r.learnedFrom} • ${(r.confidence * 100).round()}% confidence',
+                                    style: const TextStyle(
+                                      fontSize: 10.5,
+                                      fontStyle: FontStyle.italic,
+                                      color: Color(0xFF94A3B8),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
+                              onPressed: () => conn.deleteLearnedRule(r.id),
+                              icon: const Icon(
+                                Icons.delete_outline,
+                                size: 17,
+                                color: _neonPink,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNeonSliderRow({
+    required String label,
+    required double value,
+    required double min,
+    required double max,
+    required Color activeColor,
+    required String leftTag,
+    required String rightTag,
+    required ValueChanged<double> onChanged,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(fontSize: 11.5, color: Color(0xFFCBD5E1)),
+        ),
+        SliderTheme(
+          data: SliderThemeData(
+            trackHeight: 6,
+            activeTrackColor: activeColor,
+            inactiveTrackColor: const Color(0xFF121626),
+            thumbColor: activeColor,
+            overlayColor: activeColor.withValues(alpha: 0.2),
+          ),
+          child: Slider(
+            value: value.clamp(min, max),
+            min: min,
+            max: max,
+            onChanged: onChanged,
+          ),
+        ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              leftTag,
+              style: const TextStyle(fontSize: 10.5, color: Color(0xFF64748B)),
+            ),
+            Text(
+              rightTag,
+              style: TextStyle(
+                fontSize: 10.5,
+                fontWeight: FontWeight.bold,
+                color: activeColor,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+//**********************************************************************
+// NEON RADIAL SPINNER PAINTER                                         *
+//**********************************************************************
+class NeonRadialSpinnerPainter extends CustomPainter {
+  final double progress;
+  final Color color;
+
+  NeonRadialSpinnerPainter({required this.progress, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2;
+    const ticks = 12;
+
+    for (int i = 0; i < ticks; i++) {
+      final angle = (i / ticks) * 2 * pi;
+      final activeIndex = (progress * ticks).floor() % ticks;
+      final dist = (i - activeIndex + ticks) % ticks;
+      final alpha = (1.0 - (dist / ticks)).clamp(0.15, 1.0);
+
+      final p1 = Offset(
+        center.dx + cos(angle) * (radius * 0.48),
+        center.dy + sin(angle) * (radius * 0.48),
+      );
+      final p2 = Offset(
+        center.dx + cos(angle) * radius,
+        center.dy + sin(angle) * radius,
+      );
+
+      canvas.drawLine(
+        p1,
+        p2,
+        Paint()
+          ..color = color.withValues(alpha: alpha)
+          ..strokeWidth = 2.0
+          ..strokeCap = StrokeCap.round,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant NeonRadialSpinnerPainter oldDelegate) => true;
 }
