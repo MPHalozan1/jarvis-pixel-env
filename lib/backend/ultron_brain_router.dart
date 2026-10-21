@@ -7,37 +7,11 @@ import 'memory_learning_usage_service.dart';
 import 'plugin_manager_service.dart';
 
 //**********************************************************************
-// PHASES 3, 4 & 6 // ULTRON BRAIN ROUTER                              *
-// - Connects to Web Gemini ([gemini.google.com/app](https://gemini.google.com/app)) & Gemini REST API  *
-// - Executes the exact 2-Stage Web Gemini Self-Prompt Workflow:       *
-//   1. Opens New Chat ("Nov klepet") on 3.5 Flash-Lite [Nizka / LOW]  *
-//   2. Types your local prompt + asks which Gemini model              *
-//      (3.5 Flash-Lite, 3.8 Flash, 3.1 Pro, 4 Argon) and which        *
-//      thinking level (Nizka / Srednja / Visoka) is best + generates  *
-//      the self-written execution prompt                              *
-//   3. Switches to the chosen model & thinking level, pastes the      *
-//      self-written prompt, streams the response, and auto-reverts    *
-//      back to 3.5 Flash-Lite [LOW] immediately after!                *
+// ULTRON BRAIN ROUTER // LIVE VS CODE WRITER & CENTER STREAMER        *
+// - Streams conversational answers to the center borderless stage     *
+// - Automatically opens the VS Code window & live-writes code blocks  *
+//   directly into the active file buffer as Qwen 14B generates them   *
 //**********************************************************************
-
-enum ThinkingLevel {
-  low,    // Nizka ("Hitro in učinkovito")
-  medium, // Srednja ("Uravnotežena globina")
-  high,   // Visoka ("Izjemno temeljito")
-}
-
-extension ThinkingLevelLabels on ThinkingLevel {
-  String get hudTag {
-    switch (this) {
-      case ThinkingLevel.low:
-        return 'LOW / NIZKA';
-      case ThinkingLevel.medium:
-        return 'MED / SREDNJA';
-      case ThinkingLevel.high:
-        return 'HIGH / VISOKA';
-    }
-  }
-}
 
 class DiffHunkProposal {
   final String id;
@@ -65,7 +39,7 @@ class OpenEditorTab {
   final String filePath;
   List<String> lines;
   bool isDirty;
-  String gitStatusBadge; // 'M', 'U', 'CLEAN'
+  String gitStatusBadge;
   String? backupSnapshotPath;
 
   OpenEditorTab({
@@ -99,67 +73,43 @@ class GitHubRepoEntry {
   });
 }
 
-class JulesSessionItem {
-  final String id;
-  final String title;
-  final String state;
-
-  JulesSessionItem({
-    required this.id,
-    required this.title,
-    required this.state,
-  });
-}
-
 class UltronBrainRouter extends ChangeNotifier {
   final MemoryLearningUsageService memoryService = MemoryLearningUsageService();
   final PluginManagerService pluginService = PluginManagerService();
 
-  // Official Endpoints
-  final String geminiUsageUrl = '[https://gemini.google.com/usage](https://gemini.google.com/usage)';
-  final String geminiWebUrl = '[https://gemini.google.com/app](https://gemini.google.com/app)';
-  final String julesWebUrl = '[https://jules.google.com/session](https://jules.google.com/session)';
-  final String githubWebUrl = '[https://github.com/](https://github.com/)';
+  String ollamaBaseUrl = 'http://127.0.0.1:11434';
+  String activeLocalModel = 'qwen2.5-coder:14b';
+  List<String> installedOllamaModels = ['qwen2.5-coder:14b'];
+
+  final String githubWebUrl = 'https://github.com/';
   final String vsCodeDesktopPath = '/usr/share/applications/code-oss.desktop';
 
-  // Connection States (Never faked!)
-  bool isGeminiWebBridgeOnline = false;
-  bool isGeminiApiConnected = false;
+  bool isOllamaOnline = false;
   bool isGithubConnected = false;
-  bool isJulesConnected = false;
+  bool isStreamingResponse = false;
 
-  String githubUsername = '';
-  int githubRateLimitRemaining = 0;
+  String githubUsername = 'MPHalozan1';
+  int githubRateLimitRemaining = 60;
   int githubRateLimitTotal = 60;
   String? githubDeviceUserCode;
-  String? githubDeviceVerificationUri;
+  String currentGitBranch = 'main';
+  String lastGitCommandOutput = 'Git ready.';
 
-  // Verified API Models from GET /v1beta/models + Web Gemini Picker Models
-  List<String> verifiedApiModels = [];
-  final List<String> webPickerModels = const [
-    '3.5 Flash-Lite',
-    '3.8 Flash',
-    '3.1 Pro',
-    '4 Argon',
-  ];
-
-  // Orb State & Model Routing State
+  // Orb & Center Stage State
   OrbState orbState = OrbState.standby;
+  bool isOrbCompactTop = false; // Shrinks orb to top-center when chatting!
   double subtleKeystrokePulse = 0.0;
   Timer? _errorResetTimer;
 
-  final String defaultTriageModel = '3.5 Flash-Lite';
-  String activeModelDisplay = '3.5 Flash-Lite';
-  ThinkingLevel activeThinkingLevel = ThinkingLevel.low;
-  String lastSelfWrittenPrompt = '';
-
-  // UI Banners & Chat Feed
-  String statusBanner = 'INITIALIZING ULTRON NEURAL CORE...';
+  String statusBanner = 'ULTRON NEURAL CORE READY';
   String? lastErrorBanner;
+  String currentPromptLabel = '';
+  String currentCenterResponseText = '';
+
   final List<ChatTurnRecord> chatHistory = [];
   final List<String> modifiedFilesInSession = [];
 
-  // Workspace File Tree & Hover Stack
+  // Workspace & VS Code Live Writer State
   late final String userHome;
   late final String desktopProjectsDir;
   String workspaceRootPath = '';
@@ -168,11 +118,12 @@ class UltronBrainRouter extends ChangeNotifier {
   String searchQuery = '';
   List<FileSystemEntity> currentFolderEntities = [];
   List<GitHubRepoEntry> githubRepos = [];
-  List<JulesSessionItem> julesSessions = [];
 
-  // Built-In Multi-Tab VS Code Window & Diff Hunks
+  bool isResponseWindowOpen = false; // History drawer toggle
   bool isVsCodeWindowOpen = false;
-  bool autoApplyEdits = false;
+  bool autoApplyEdits = true; // Enabled so Ultron writes directly to VS Code!
+  int activeStreamingLineInEditor = -1;
+
   final List<OpenEditorTab> openTabs = [];
   int activeTabIndex = 0;
   final List<DiffHunkProposal> pendingDiffHunks = [];
@@ -181,9 +132,6 @@ class UltronBrainRouter extends ChangeNotifier {
       (activeTabIndex >= 0 && activeTabIndex < openTabs.length)
           ? openTabs[activeTabIndex]
           : null;
-
-  bool get isAnyGeminiConnected =>
-      isGeminiWebBridgeOnline || isGeminiApiConnected;
 
   UltronBrainRouter() {
     userHome = Platform.environment['HOME'] ??
@@ -201,12 +149,11 @@ class UltronBrainRouter extends ChangeNotifier {
     pluginService.addListener(notifyListeners);
 
     refreshDirectoryEntities(workspaceRootPath);
-    await _checkSavedCredentialsAndConnections();
+    await _detectGitBranch();
+    await checkLocalOllamaHealth();
+    await _checkSavedGithubAuth();
   }
 
-  //********************************************************************
-  // ORB STATE MANAGEMENT (STANDBY, LISTENING, THINKING, ANSWERING, ERR)*
-  //********************************************************************
   void setInputFocus(bool hasFocus) {
     if (orbState == OrbState.thinking ||
         orbState == OrbState.answering ||
@@ -229,8 +176,16 @@ class UltronBrainRouter extends ChangeNotifier {
 
   void decayKeystrokeRipple(double dt) {
     if (subtleKeystrokePulse > 0.0) {
-      subtleKeystrokePulse = (subtleKeystrokePulse - dt * 3.2).clamp(0.0, 1.0);
+      subtleKeystrokePulse = (subtleKeystrokePulse - dt * 3.5).clamp(0.0, 1.0);
     }
+  }
+
+  void resetCenterStageToStandbyOrb() {
+    isOrbCompactTop = false;
+    currentPromptLabel = '';
+    currentCenterResponseText = '';
+    orbState = OrbState.standby;
+    notifyListeners();
   }
 
   void triggerErrorState(String clearReason) {
@@ -238,7 +193,7 @@ class UltronBrainRouter extends ChangeNotifier {
     statusBanner = 'ERROR // $clearReason';
     orbState = OrbState.error;
     _errorResetTimer?.cancel();
-    _errorResetTimer = Timer(const Duration(milliseconds: 1150), () {
+    _errorResetTimer = Timer(const Duration(milliseconds: 1200), () {
       orbState = OrbState.standby;
       notifyListeners();
     });
@@ -252,19 +207,573 @@ class UltronBrainRouter extends ChangeNotifier {
   }
 
   //********************************************************************
-  // PHASE 4 // REAL CONNECTIONS (GITHUB, GEMINI WEB/API, JULES)       *
+  // 1. LOCAL OLLAMA HEALTH & MODEL DISCOVERY                          *
   //********************************************************************
-  Future<void> _checkSavedCredentialsAndConnections() async {
-    // 1. Check local Web Gemini Bridge on port 8765
-    await checkWebGeminiBridgeHealth();
+  Future<bool> checkLocalOllamaHealth() async {
+    try {
+      final client = HttpClient()
+        ..connectionTimeout = const Duration(seconds: 3);
+      final req = await client.getUrl(Uri.parse('$ollamaBaseUrl/api/tags'));
+      final resp = await req.close();
+      final body = await resp.transform(utf8.decoder).join();
+      client.close();
 
-    // 2. Check saved Gemini API Key
-    final savedGeminiKey = await memoryService.readSecret('gemini_api_key');
-    if (savedGeminiKey.isNotEmpty) {
-      await connectGeminiApiKey(savedGeminiKey, silent: true);
+      if (resp.statusCode == 200) {
+        final map = jsonDecode(body) as Map<String, dynamic>;
+        final models = (map['models'] as List<dynamic>? ?? []);
+        final names = models
+            .map((m) => ((m as Map<String, dynamic>)['name'] ?? '').toString())
+            .where((n) => n.isNotEmpty)
+            .toList();
+
+        if (names.isNotEmpty) {
+          installedOllamaModels = names;
+          if (names.any((n) => n.contains('qwen2.5-coder:14b'))) {
+            activeLocalModel =
+                names.firstWhere((n) => n.contains('qwen2.5-coder:14b'));
+          } else if (!names.contains(activeLocalModel)) {
+            activeLocalModel = names.first;
+          }
+        }
+        isOllamaOnline = true;
+        _syncConnectionsMetadataFile();
+        _showToastBanner('ONLINE // ${activeLocalModel.toUpperCase()} READY');
+        return true;
+      }
+    } catch (_) {}
+
+    isOllamaOnline = false;
+    _showToastBanner('OLLAMA OFFLINE // CHECK $ollamaBaseUrl');
+    return false;
+  }
+
+  void selectLocalOllamaModel(String modelName) {
+    activeLocalModel = modelName;
+    _syncConnectionsMetadataFile();
+    _showToastBanner('MODEL: ${modelName.toUpperCase()}');
+  }
+
+  //********************************************************************
+  // 2. SNAPPY CENTER STREAMING + LIVE VS CODE WINDOW CODE WRITING     *
+  //********************************************************************
+  Future<void> executeUltronPrompt(String rawInput) async {
+    final input = rawInput.trim();
+    if (input.isEmpty || isStreamingResponse) return;
+
+    // Move Orb to top-center so Ultron's borderless response floats in the middle!
+    isOrbCompactTop = true;
+    currentPromptLabel = input;
+
+    if (input.toLowerCase() == '/learn status') {
+      currentCenterResponseText = memoryService.getLearnStatusSummary();
+      _showToastBanner('DISPLAYED /learn STATUS');
+      return;
     }
 
-    // 3. Check saved GitHub PAT or local `gh auth token`
+    if (input.toLowerCase() == '/learn reset') {
+      memoryService.resetLearnedNotes();
+      currentCenterResponseText =
+          'Learned notes reset to baseline in ultron_memory/learned/.';
+      _showToastBanner('LEARNED NOTES RESET');
+      return;
+    }
+
+    if (input.toLowerCase() == '/learn') {
+      await learnFromProjectsAndChats();
+      return;
+    }
+
+    if (input.toLowerCase() == '/pull') {
+      await gitPull();
+      return;
+    }
+
+    if (input.toLowerCase().startsWith('/commit')) {
+      final msg = input.length > 7
+          ? input.substring(7).trim()
+          : 'feat: update via Ultron Neural Core';
+      await gitCommitAndPush(commitMessage: msg, pushAfter: false);
+      return;
+    }
+
+    if (input.toLowerCase() == '/push') {
+      await gitPush();
+      return;
+    }
+
+    if (memoryService.isDoneTriggerPhrase(input)) {
+      final savedName = await memoryService.saveConversationToDisk(
+        turns: chatHistory,
+        modifiedFiles: modifiedFilesInSession,
+        shortTitleSlug:
+            chatHistory.isNotEmpty ? chatHistory.first.text.takeWords(4) : 'session',
+      );
+      currentCenterResponseText =
+          'Session archived to ultron_memory/chats/$savedName';
+      _showToastBanner('CHAT SAVED // $savedName');
+      return;
+    }
+
+    _appendTurn(
+      sender: 'USER',
+      model: activeLocalModel,
+      level: 'LOCAL',
+      text: input,
+    );
+
+    if (!isOllamaOnline) {
+      final ok = await checkLocalOllamaHealth();
+      if (!ok) {
+        triggerErrorState('Ollama server offline at $ollamaBaseUrl');
+        return;
+      }
+    }
+
+    isStreamingResponse = true;
+    orbState = OrbState.thinking;
+    currentCenterResponseText = '';
+    _showToastBanner('${activeLocalModel.toUpperCase()} THINKING...');
+
+    final learnedContext =
+        memoryService.retrieveRelevantLearnedContext(input, maxChars: 3200);
+    final pluginContext = pluginService.buildLazyLoadedPluginContext(input);
+
+    String activeFileContext = '';
+    if (activeTab != null) {
+      final snippet = activeTab!.lines.take(90).join('\n');
+      activeFileContext =
+          '\n[OPEN FILE IN VS CODE WINDOW: ${activeTab!.filePath}]:\n```\n$snippet\n```';
+    }
+
+    final systemPrompt =
+        'You are Ultron, an advanced AI system and coding architect running locally on CachyOS (Intel Arc B570).\n'
+        'Speak concisely, directly, and with sharp technical clarity.\n'
+        'Whenever you write or modify code, wrap the code in a standard ```language ... ``` block. '
+        'If the user specifies a file name (or if you are creating a new file), put "// file: relative/path.ext" on the first line inside the code block so it writes directly into the VS Code window.\n'
+        'Learned preferences:\n$learnedContext\n'
+        '$pluginContext'
+        '$activeFileContext';
+
+    final responseTurn = ChatTurnRecord(
+      timestamp: DateTime.now(),
+      sender: 'ULTRON',
+      modelUsed: activeLocalModel,
+      thinkingLevel: 'STREAMING',
+      text: '',
+    );
+    chatHistory.add(responseTurn);
+
+    final stopwatch = Stopwatch()..start();
+    int evalCount = 0;
+    int promptEvalCount = (systemPrompt.length + input.length) ~/ 4;
+    final StringBuffer fullRawBuffer = StringBuffer();
+
+    bool liveEditorPreparedForThisStream = false;
+    List<String> preStreamEditorPrefixLines = [];
+
+    try {
+      final client = HttpClient()
+        ..connectionTimeout = const Duration(seconds: 15);
+      final req = await client.postUrl(Uri.parse('$ollamaBaseUrl/api/chat'));
+      req.headers.set('Content-Type', 'application/json');
+
+      final recentMessages = <Map<String, String>>[
+        {'role': 'system', 'content': systemPrompt},
+      ];
+      final startIdx = (chatHistory.length - 7).clamp(0, chatHistory.length - 1);
+      for (int i = startIdx; i < chatHistory.length - 1; i++) {
+        final h = chatHistory[i];
+        recentMessages.add({
+          'role': h.sender == 'USER' ? 'user' : 'assistant',
+          'content': h.text,
+        });
+      }
+
+      req.add(
+        utf8.encode(
+          jsonEncode({
+            'model': activeLocalModel,
+            'messages': recentMessages,
+            'stream': true,
+          }),
+        ),
+      );
+
+      final resp = await req.close();
+      if (resp.statusCode != 200) {
+        final errBody = await resp.transform(utf8.decoder).join();
+        client.close();
+        throw Exception('Ollama HTTP ${resp.statusCode}:$errBody');
+      }
+
+      orbState = OrbState.answering;
+      memoryService.updateLiveStreamingSpeed(0.0, generating: true);
+
+      await for (final chunk
+          in resp.transform(utf8.decoder).transform(const LineSplitter())) {
+        if (chunk.trim().isEmpty) continue;
+        try {
+          final data = jsonDecode(chunk) as Map<String, dynamic>;
+          final msg = data['message'] as Map<String, dynamic>?;
+          final tokenPiece = (msg?['content'] ?? '').toString();
+
+          if (tokenPiece.isNotEmpty) {
+            fullRawBuffer.write(tokenPiece);
+            evalCount++;
+
+            final elapsedSec =
+                (stopwatch.elapsedMilliseconds / 1000.0).clamp(0.05, 3600.0);
+            final liveTps = evalCount / elapsedSec;
+            memoryService.updateLiveStreamingSpeed(liveTps, generating: true);
+
+            final rawSoFar = fullRawBuffer.toString();
+
+            // Check if Ultron is streaming a code block -> Write it LIVE into the VS Code Window!
+            final fenceStart = rawSoFar.indexOf('```');
+            if (fenceStart != -1) {
+              final afterFence = rawSoFar.substring(fenceStart + 3);
+              final firstNewline = afterFence.indexOf('\n');
+              if (firstNewline != -1) {
+                var codeBody = afterFence.substring(firstNewline + 1);
+                final closingFence = codeBody.indexOf('```');
+                if (closingFence != -1) {
+                  codeBody = codeBody.substring(0, closingFence);
+                }
+
+                if (!liveEditorPreparedForThisStream) {
+                  liveEditorPreparedForThisStream = true;
+                  await _prepareTargetTabForLiveCodeStream(codeBody);
+                  if (activeTab != null) {
+                    _createPreEditBackupSnapshot(activeTab!);
+                    preStreamEditorPrefixLines = List<String>.from(activeTab!.lines);
+                  }
+                }
+
+                // Write the incoming code lines directly into the VS Code window tab!
+                if (activeTab != null && autoApplyEdits) {
+                  final incomingCodeLines = codeBody.split('\n');
+                  // If the code specifies "// file: ...", replace file content cleanly; otherwise append/update
+                  final isFullFileWrite =
+                      codeBody.trimLeft().startsWith('// file:') ||
+                      codeBody.contains('void main(') ||
+                      codeBody.contains('import \'package:');
+                  if (isFullFileWrite) {
+                    activeTab!.lines = incomingCodeLines;
+                  } else {
+                    activeTab!.lines = [
+                      ...preStreamEditorPrefixLines,
+                      '',
+                      ...incomingCodeLines,
+                    ];
+                  }
+                  activeTab!.gitStatusBadge = 'M';
+                  activeStreamingLineInEditor = activeTab!.lines.length - 1;
+                }
+              }
+            }
+
+            // Keep the center floating text clean (strip giant code blocks and show live editor badge)
+            currentCenterResponseText = _formatCleanCenterText(
+              rawSoFar,
+              activeFileName: activeTab?.fileName ?? 'workspace buffer',
+            );
+            responseTurn.text = rawSoFar;
+            subtleKeystrokePulse = 0.45;
+            notifyListeners();
+          }
+
+          if (data['done'] == true) {
+            promptEvalCount =
+                (data['prompt_eval_count'] as num?)?.toInt() ?? promptEvalCount;
+            evalCount = (data['eval_count'] as num?)?.toInt() ?? evalCount;
+          }
+        } catch (_) {}
+      }
+      client.close();
+
+      stopwatch.stop();
+      final totalSec =
+          (stopwatch.elapsedMilliseconds / 1000.0).clamp(0.1, 3600.0);
+      final finalTps = evalCount / totalSec;
+
+      final finalRaw = fullRawBuffer.toString().trim();
+      responseTurn.text = finalRaw;
+      responseTurn.thinkingLevel = '${finalTps.toStringAsFixed(1)} tok/s';
+      currentCenterResponseText = _formatCleanCenterText(
+        finalRaw,
+        activeFileName: activeTab?.fileName ?? 'workspace buffer',
+      );
+
+      // Persist live-written code to disk if Ultron wrote code into the VS Code window
+      if (liveEditorPreparedForThisStream && activeTab != null) {
+        if (autoApplyEdits) {
+          File(activeTab!.filePath)
+              .writeAsStringSync(activeTab!.lines.join('\n'));
+          if (!modifiedFilesInSession.contains(activeTab!.fileName)) {
+            modifiedFilesInSession.add(activeTab!.fileName);
+          }
+        } else {
+          final extracted = extractFirstCodeBlock(finalRaw);
+          if (extracted != null) {
+            proposeCodeBlockAsDiffHunk(
+              codeBlock: extracted,
+              description: 'Generated by $activeLocalModel',
+            );
+          }
+        }
+      }
+
+      activeStreamingLineInEditor = -1;
+      memoryService.recordLocalOllamaUsage(
+        promptTokens: promptEvalCount,
+        completionTokens: evalCount,
+        tokensPerSec: finalTps,
+      );
+
+      orbState = OrbState.standby;
+      isStreamingResponse = false;
+      _showToastBanner(
+        'COMPLETE // ${finalTps.toStringAsFixed(1)} TOK/S',
+      );
+    } catch (e) {
+      isStreamingResponse = false;
+      activeStreamingLineInEditor = -1;
+      memoryService.updateLiveStreamingSpeed(0.0, generating: false);
+      triggerErrorState(e.toString());
+    }
+  }
+
+  // Ensures a target file tab is open in the VS Code Window when Ultron starts writing code
+  Future<void> _prepareTargetTabForLiveCodeStream(String initialCode) async {
+    isVsCodeWindowOpen = true;
+    final firstLine = initialCode.split('\n').first.trim();
+    if (firstLine.startsWith('// file:')) {
+      final relPath = firstLine.replaceFirst('// file:', '').trim();
+      if (relPath.isNotEmpty) {
+        final fullPath = '$workspaceRootPath/$relPath';
+        final f = File(fullPath);
+        if (isPathInsideWorkspace(fullPath)) {
+          if (!f.existsSync()) {
+            f.parent.createSync(recursive: true);
+            f.writeAsStringSync('');
+          }
+          await openFileInEditorTab(fullPath, autoOpenWindow: true);
+          return;
+        }
+      }
+    }
+
+    if (openTabs.isEmpty) {
+      final fallback = File('$workspaceRootPath/lib/main.dart').existsSync()
+          ? '$workspaceRootPath/lib/main.dart'
+          : '$workspaceRootPath/README.md';
+      await openFileInEditorTab(fallback, autoOpenWindow: true);
+    }
+  }
+
+  // Replaces bulky code blocks in the center floating view with a clean live-writing indicator
+  String _formatCleanCenterText(
+    String rawMarkdown, {
+    required String activeFileName,
+  }) {
+    final closedHandled = rawMarkdown.replaceAll(
+      RegExp(r'```(?:[a-zA-Z0-9_+-]+)?\n[\s\S]*?```'),
+      '\n⚡ [CODE WRITTEN LIVE TO VS CODE WINDOW -> $activeFileName]\n',
+    );
+    final openFenceIdx = closedHandled.indexOf('```');
+    if (openFenceIdx != -1) {
+      return '${closedHandled.substring(0, openFenceIdx).trim()}\n\n⚡ [STREAMING CODE LIVE INTO VS CODE WINDOW -> $activeFileName...]';
+    }
+    return closedHandled.replaceAll('**', '').trim();
+  }
+
+  String? extractFirstCodeBlock(String markdown) {
+    final reg = RegExp(r'```(?:[a-zA-Z0-9_+-]+)?\n([\s\S]*?)```');
+    final match = reg.firstMatch(markdown);
+    return match?.group(1);
+  }
+
+  void proposeCodeBlockAsDiffHunk({
+    required String codeBlock,
+    required String description,
+  }) {
+    if (openTabs.isEmpty) {
+      final fallback = File('$workspaceRootPath/lib/main.dart').existsSync()
+          ? '$workspaceRootPath/lib/main.dart'
+          : '$workspaceRootPath/README.md';
+      openFileInEditorTab(fallback, autoOpenWindow: true);
+    }
+    final tab = activeTab;
+    if (tab == null) return;
+
+    final proposedLines = codeBlock.trimRight().split('\n');
+    final startLine = (tab.lines.length > 4) ? tab.lines.length - 2 : 1;
+    final orig = tab.lines.sublist(startLine - 1);
+
+    final hunk = DiffHunkProposal(
+      id: 'hunk_${DateTime.now().millisecondsSinceEpoch}',
+      filePath: tab.filePath,
+      startLine: startLine,
+      originalLines: orig,
+      proposedLines: [...orig, '', ...proposedLines],
+      description: description,
+    );
+
+    if (autoApplyEdits) {
+      acceptDiffHunk(hunk);
+    } else {
+      pendingDiffHunks.insert(0, hunk);
+      isVsCodeWindowOpen = true;
+      notifyListeners();
+    }
+  }
+
+  //********************************************************************
+  // 3. /learn PROJECT CODE SCANNER                                    *
+  //********************************************************************
+  Future<void> learnFromProjectsAndChats() async {
+    orbState = OrbState.thinking;
+    isOrbCompactTop = true;
+    currentPromptLabel = '/learn';
+    currentCenterResponseText =
+        'Scanning workspace source files (.dart, .c, .cpp, .cs, .go, .rs, .ts)...';
+    _showToastBanner('SCANNING PROJECT CODE FOR /learn...');
+
+    final result = memoryService.runIncrementalLearnPass(
+      activePluginNames: pluginService.installedPlugins
+          .where((p) => p.isEnabled)
+          .map((p) => p.name)
+          .toList(),
+      projectDirectoriesToScan: [
+        workspaceRootPath,
+        '$userHome/Projects',
+        desktopProjectsDir,
+      ],
+    );
+
+    orbState = OrbState.standby;
+    final summary =
+        'Codebase & Chat Learning Complete\n\n'
+        '• Source code files analyzed: ${result['scannedCodeFiles']}\n'
+        '• Languages indexed: ${result['languages']}\n'
+        '• Newly processed chat archives: ${result['newlyProcessedChats']}\n'
+        '• Patterns saved to ultron_memory/learned/projects.md & preferences.md';
+
+    currentCenterResponseText = summary;
+    _appendTurn(
+      sender: 'ULTRON',
+      model: activeLocalModel,
+      level: 'CODE LEARNER',
+      text: summary,
+    );
+    _showToastBanner(
+      '/learn COMPLETE // ${result['scannedCodeFiles']} FILES INDEXED',
+    );
+  }
+
+  //********************************************************************
+  // 4. GIT AUTOMATION (git pull, git commit, git push)                *
+  //********************************************************************
+  Future<void> _detectGitBranch() async {
+    try {
+      final res = await Process.run(
+        'git',
+        ['rev-parse', '--abbrev-ref', 'HEAD'],
+        workingDirectory: workspaceRootPath,
+      );
+      if (res.exitCode == 0 && res.stdout.toString().trim().isNotEmpty) {
+        currentGitBranch = res.stdout.toString().trim();
+      }
+    } catch (_) {}
+    notifyListeners();
+  }
+
+  Future<void> gitPull() async {
+    orbState = OrbState.thinking;
+    isOrbCompactTop = true;
+    currentPromptLabel = 'git pull';
+    _showToastBanner('EXECUTING: git pull...');
+    try {
+      final res = await Process.run(
+        'git',
+        ['pull'],
+        workingDirectory: workspaceRootPath,
+      );
+      final out = '${res.stdout}\n${res.stderr}'.trim();
+      lastGitCommandOutput = out.isEmpty ? 'Already up to date.' : out;
+      currentCenterResponseText = lastGitCommandOutput;
+      orbState = OrbState.standby;
+      refreshDirectoryEntities(workspaceRootPath);
+      _showToastBanner('GIT PULL COMPLETE ($currentGitBranch)');
+    } catch (e) {
+      triggerErrorState('git pull failed: $e');
+    }
+  }
+
+  Future<void> gitCommitAndPush({
+    required String commitMessage,
+    bool pushAfter = true,
+  }) async {
+    final msg = commitMessage.trim().isEmpty
+        ? 'feat: update via Ultron Neural Core'
+        : commitMessage.trim();
+    orbState = OrbState.thinking;
+    isOrbCompactTop = true;
+    currentPromptLabel = pushAfter ? 'git commit & push' : 'git commit';
+    _showToastBanner('COMMITTING: "$msg"...');
+
+    try {
+      await Process.run('git', ['add', '.'], workingDirectory: workspaceRootPath);
+      final commitRes = await Process.run(
+        'git',
+        ['commit', '-m', msg],
+        workingDirectory: workspaceRootPath,
+      );
+      final commitOut = '${commitRes.stdout}\n${commitRes.stderr}'.trim();
+      lastGitCommandOutput = commitOut;
+
+      if (pushAfter) {
+        final pushRes = await Process.run(
+          'git',
+          ['push', 'origin', currentGitBranch],
+          workingDirectory: workspaceRootPath,
+        );
+        final pushOut = '${pushRes.stdout}\n${pushRes.stderr}'.trim();
+        lastGitCommandOutput = '$commitOut\n$pushOut'.trim();
+      }
+
+      currentCenterResponseText = lastGitCommandOutput;
+      orbState = OrbState.standby;
+      _showToastBanner(
+        pushAfter ? 'GIT COMMIT & PUSH COMPLETE' : 'GIT COMMIT COMPLETE',
+      );
+    } catch (e) {
+      triggerErrorState('Git operation failed: $e');
+    }
+  }
+
+  Future<void> gitPush() async {
+    orbState = OrbState.thinking;
+    isOrbCompactTop = true;
+    currentPromptLabel = 'git push';
+    _showToastBanner('PUSHING TO origin/$currentGitBranch...');
+    try {
+      final res = await Process.run(
+        'git',
+        ['push', 'origin', currentGitBranch],
+        workingDirectory: workspaceRootPath,
+      );
+      final out = '${res.stdout}\n${res.stderr}'.trim();
+      lastGitCommandOutput = out.isEmpty ? 'Push succeeded.' : out;
+      currentCenterResponseText = lastGitCommandOutput;
+      orbState = OrbState.standby;
+      _showToastBanner('GIT PUSH COMPLETE ($currentGitBranch)');
+    } catch (e) {
+      triggerErrorState('git push failed: $e');
+    }
+  }
+
+  Future<void> _checkSavedGithubAuth() async {
     String ghToken = await memoryService.readSecret('github_token');
     if (ghToken.isEmpty) {
       try {
@@ -278,144 +787,10 @@ class UltronBrainRouter extends ChangeNotifier {
     if (ghToken.isNotEmpty) {
       await connectGithubWithToken(ghToken, silent: true);
     } else {
-      await fetchGithubRateLimit();
-    }
-
-    // 4. Check saved Jules API key
-    final savedJulesKey = await memoryService.readSecret('jules_api_key');
-    if (savedJulesKey.isNotEmpty) {
-      await connectJulesApi(savedJulesKey, silent: true);
-    }
-
-    _syncConnectionsMetadataFile();
-    if (isAnyGeminiConnected) {
-      statusBanner =
-          'READY // TRIAGE: 3.5 FLASH-LITE [LOW]. TYPE COMMAND OR /learn.';
-    } else {
-      statusBanner =
-          'NOT CONNECTED // OPEN "WEB LINKS & SETTINGS" TO CONNECT GEMINI OR WEB BRIDGE.';
-    }
-    notifyListeners();
-  }
-
-  Future<bool> checkWebGeminiBridgeHealth() async {
-    try {
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(milliseconds: 700);
-      final req = await client.postUrl(
-        Uri.parse('[http://127.0.0.1:8765/ultron/web-gemini](http://127.0.0.1:8765/ultron/web-gemini)'),
-      );
-      req.headers.set('Content-Type', 'application/json');
-      req.add(utf8.encode(jsonEncode({'ping': true, 'prompt': 'ping'})));
-      final resp = await req.close();
-      client.close();
-      isGeminiWebBridgeOnline = resp.statusCode == 200;
-    } catch (_) {
-      isGeminiWebBridgeOnline = false;
-    }
-    notifyListeners();
-    return isGeminiWebBridgeOnline;
-  }
-
-  // Launches the local Python Web Gemini Bridge daemon + opens [gemini.google.com/app](https://gemini.google.com/app)
-  Future<void> launchWebGeminiBridgeAndBrowser() async {
-    final scriptPath =
-        '${memoryService.bridgeDir.path}/gemini_web_bridge.py';
-    try {
-      if (Platform.isLinux || Platform.isWindows) {
-        await Process.start(
-          Platform.isWindows ? 'python' : 'python3',
-          [scriptPath],
-          mode: ProcessStartMode.detached,
-        );
-      }
-    } catch (_) {}
-
-    await openWebUrl(geminiWebUrl);
-    await Future.delayed(const Duration(milliseconds: 900));
-    final online = await checkWebGeminiBridgeHealth();
-    if (online) {
-      _showToastBanner(
-        'WEB GEMINI BRIDGE ONLINE (127.0.0.1:8765) + GEMINI.GOOGLE.COM OPENED.',
-      );
-    } else {
-      // Enable Direct Web Session Assisted Bridge so the user can use Web Gemini immediately
-      isGeminiWebBridgeOnline = true;
-      _showToastBanner(
-        'WEB GEMINI SESSION ACTIVE // NOV KLEPET -> 3.5 FLASH-LITE SELF-PROMPT READY.',
-      );
-    }
-    _syncConnectionsMetadataFile();
-    notifyListeners();
-  }
-
-  // Calls GET /v1beta/models to verify real model IDs for the key
-  Future<bool> connectGeminiApiKey(String rawKey, {bool silent = false}) async {
-    final key = rawKey.trim();
-    if (key.isEmpty) {
-      triggerErrorState('Gemini API key is empty.');
-      return false;
-    }
-
-    try {
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 8);
-      final uri = Uri.parse(
-        '[https://generativelanguage.googleapis.com/v1beta/models?key=$key](https://generativelanguage.googleapis.com/v1beta/models?key=$key)',
-      );
-      final req = await client.getUrl(uri);
-      final resp = await req.close();
-      final body = await resp.transform(utf8.decoder).join();
-      client.close();
-
-      if (resp.statusCode != 200) {
-        isGeminiApiConnected = false;
-        if (!silent) {
-          triggerErrorState(
-            'Gemini API Error ${resp.statusCode}: Failed to verify models.',
-          );
-        }
-        return false;
-      }
-
-      final data = jsonDecode(body) as Map<String, dynamic>;
-      final models = (data['models'] as List<dynamic>? ?? []);
-      verifiedApiModels = models
-          .map((m) => ((m as Map<String, dynamic>)['name'] ?? '')
-              .toString()
-              .replaceFirst('models/', ''))
-          .where((name) => name.startsWith('gemini'))
-          .toList();
-
-      await memoryService.writeSecret('gemini_api_key', key);
-      isGeminiApiConnected = true;
-      _syncConnectionsMetadataFile();
-      if (!silent) {
-        _showToastBanner(
-          'GEMINI API VERIFIED // ${verifiedApiModels.length} REAL MODELS AVAILABLE.',
-        );
-      }
-      notifyListeners();
-      return true;
-    } catch (e) {
-      isGeminiApiConnected = false;
-      if (!silent) {
-        triggerErrorState('Network failure verifying Gemini key: $e');
-      }
-      return false;
+      await fetchGithubRepos(githubUsername);
     }
   }
 
-  Future<void> disconnectGemini() async {
-    await memoryService.writeSecret('gemini_api_key', '');
-    isGeminiApiConnected = false;
-    isGeminiWebBridgeOnline = false;
-    verifiedApiModels.clear();
-    _syncConnectionsMetadataFile();
-    _showToastBanner('GEMINI DISCONNECTED.');
-  }
-
-  // GitHub PAT & Real Rate Limit Check
   Future<bool> connectGithubWithToken(
     String rawToken, {
     bool silent = false,
@@ -427,7 +802,7 @@ class UltronBrainRouter extends ChangeNotifier {
       final client = HttpClient()
         ..connectionTimeout = const Duration(seconds: 8);
       final userReq =
-          await client.getUrl(Uri.parse('[https://api.github.com/user](https://api.github.com/user)'));
+          await client.getUrl(Uri.parse('https://api.github.com/user'));
       userReq.headers.set('User-Agent', 'Ultron-Neural-Consciousness');
       userReq.headers.set('Authorization', 'Bearer $token');
       final userResp = await userReq.close();
@@ -457,13 +832,10 @@ class UltronBrainRouter extends ChangeNotifier {
     }
   }
 
-  // GitHub OAuth Device Flow (POST [https://github.com/login/device/code](https://github.com/login/device/code))
   Future<void> startGithubDeviceFlow(String oauthClientId) async {
     final cid = oauthClientId.trim();
     if (cid.isEmpty) {
-      triggerErrorState(
-        'Enter a GitHub OAuth App Client ID for Device Flow, or paste a PAT token.',
-      );
+      triggerErrorState('Enter a GitHub OAuth Client ID or paste a PAT.');
       return;
     }
 
@@ -471,11 +843,12 @@ class UltronBrainRouter extends ChangeNotifier {
       final client = HttpClient()
         ..connectionTimeout = const Duration(seconds: 8);
       final req = await client.postUrl(
-        Uri.parse('[https://github.com/login/device/code](https://github.com/login/device/code)'),
+        Uri.parse('https://github.com/login/device/code'),
       );
       req.headers.set('Accept', 'application/json');
       req.headers.set('Content-Type', 'application/json');
-      req.add(utf8.encode(jsonEncode({'client_id': cid, 'scope': 'repo read:user'})));
+      req.add(
+          utf8.encode(jsonEncode({'client_id': cid, 'scope': 'repo read:user'})));
       final resp = await req.close();
       final body = await resp.transform(utf8.decoder).join();
       client.close();
@@ -483,18 +856,15 @@ class UltronBrainRouter extends ChangeNotifier {
       final map = jsonDecode(body) as Map<String, dynamic>;
       if (map.containsKey('user_code')) {
         githubDeviceUserCode = map['user_code'].toString();
-        githubDeviceVerificationUri =
-            (map['verification_uri'] ?? '[https://github.com/login/device](https://github.com/login/device)')
-                .toString();
-        await openWebUrl(githubDeviceVerificationUri!);
-        _showToastBanner(
-          'GITHUB DEVICE CODE: $githubDeviceUserCode (Enter at [github.com/login/device](https://github.com/login/device))',
-        );
+        final uri = (map['verification_uri'] ?? 'https://github.com/login/device')
+            .toString();
+        await openWebUrl(uri);
+        _showToastBanner('GITHUB DEVICE CODE: $githubDeviceUserCode');
       } else {
         triggerErrorState('GitHub Device Flow error: $body');
       }
     } catch (e) {
-      triggerErrorState('Device Flow request failed: $e');
+      triggerErrorState('Device Flow failed: $e');
     }
   }
 
@@ -504,7 +874,7 @@ class UltronBrainRouter extends ChangeNotifier {
       final client = HttpClient()
         ..connectionTimeout = const Duration(seconds: 6);
       final req =
-          await client.getUrl(Uri.parse('[https://api.github.com/rate_limit](https://api.github.com/rate_limit)'));
+          await client.getUrl(Uri.parse('https://api.github.com/rate_limit'));
       req.headers.set('User-Agent', 'Ultron-Neural-Consciousness');
       if (token.isNotEmpty) {
         req.headers.set('Authorization', 'Bearer $token');
@@ -515,7 +885,7 @@ class UltronBrainRouter extends ChangeNotifier {
         final map = jsonDecode(body) as Map<String, dynamic>;
         final rate = (map['rate'] as Map<String, dynamic>? ?? {});
         githubRateLimitRemaining =
-            (rate['remaining'] as num?)?.toInt() ?? 0;
+            (rate['remaining'] as num?)?.toInt() ?? 60;
         githubRateLimitTotal = (rate['limit'] as num?)?.toInt() ?? 60;
       }
       client.close();
@@ -534,9 +904,9 @@ class UltronBrainRouter extends ChangeNotifier {
       final client = HttpClient()
         ..connectionTimeout = const Duration(seconds: 8);
       final uri = (token.isNotEmpty && user == githubUsername)
-          ? Uri.parse('[https://api.github.com/user/repos?sort=updated&per_page=30](https://api.github.com/user/repos?sort=updated&per_page=30)')
+          ? Uri.parse('https://api.github.com/user/repos?sort=updated&per_page=30')
           : Uri.parse(
-              '[https://api.github.com/users/$user/repos?sort=updated&per_page=30](https://api.github.com/users/$user/repos?sort=updated&per_page=30)',
+              'https://api.github.com/users/$user/repos?sort=updated&per_page=30',
             );
       final req = await client.getUrl(uri);
       req.headers.set('User-Agent', 'Ultron-Neural-Consciousness');
@@ -561,481 +931,56 @@ class UltronBrainRouter extends ChangeNotifier {
             localPath: Directory(target).existsSync() ? target : null,
           );
         }).toList();
-        _showToastBanner(
-          'LOADED ${githubRepos.length} REPOS FROM @$githubUsername.',
-        );
         _syncConnectionsMetadataFile();
-      } else {
-        triggerErrorState('GitHub repos HTTP ${resp.statusCode}');
       }
       client.close();
-    } catch (e) {
-      triggerErrorState('GitHub repo fetch failed: $e');
-    }
-  }
-
-  // Official Google Jules v1alpha API ([https://jules.googleapis.com/v1alpha/sessions](https://jules.googleapis.com/v1alpha/sessions))
-  Future<bool> connectJulesApi(String rawKey, {bool silent = false}) async {
-    final key = rawKey.trim();
-    if (key.isEmpty) return false;
-
-    try {
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 8);
-      final req = await client.getUrl(
-        Uri.parse('[https://jules.googleapis.com/v1alpha/sessions?pageSize=10](https://jules.googleapis.com/v1alpha/sessions?pageSize=10)'),
-      );
-      req.headers.set('X-Goog-Api-Key', key);
-      final resp = await req.close();
-      final body = await resp.transform(utf8.decoder).join();
-      client.close();
-
-      if (resp.statusCode == 200) {
-        final map = jsonDecode(body) as Map<String, dynamic>;
-        final sessions = (map['sessions'] as List<dynamic>? ?? []);
-        julesSessions = sessions.map((s) {
-          final sm = s as Map<String, dynamic>;
-          return JulesSessionItem(
-            id: (sm['name'] ?? '').toString(),
-            title: (sm['title'] ?? 'Jules Session').toString(),
-            state: (sm['state'] ?? 'ACTIVE').toString(),
-          );
-        }).toList();
-        isJulesConnected = true;
-        await memoryService.writeSecret('jules_api_key', key);
-        _syncConnectionsMetadataFile();
-        if (!silent) {
-          _showToastBanner(
-            'JULES API CONNECTED // ${julesSessions.length} SESSIONS LOADED.',
-          );
-        }
-        notifyListeners();
-        return true;
-      } else {
-        if (!silent) {
-          triggerErrorState('Jules API HTTP ${resp.statusCode}: $body');
-        }
-        return false;
-      }
-    } catch (e) {
-      if (!silent) triggerErrorState('Jules API network error: $e');
-      return false;
-    }
+    } catch (_) {}
+    notifyListeners();
   }
 
   void _syncConnectionsMetadataFile() {
     memoryService.saveNonSecretConnectionsMetadata(
-      geminiConnected: isAnyGeminiConnected,
-      geminiMode: isGeminiWebBridgeOnline ? 'WEB_BRIDGE' : 'REST_API',
+      ollamaConnected: isOllamaOnline,
+      activeLocalModel: activeLocalModel,
       githubConnected: isGithubConnected,
       githubUsername: githubUsername,
       repoNames: githubRepos.map((r) => r.fullName).toList(),
-      julesConnected: isJulesConnected,
     );
+  }
+
+  void startNewChatSession() {
+    chatHistory.clear();
+    currentPromptLabel = '';
+    currentCenterResponseText = '';
+    isOrbCompactTop = false;
+    _showToastBanner('NEW SESSION STARTED');
+  }
+
+  void loadSavedChatArchiveIntoView(SavedChatArchive archive) {
+    final turns = memoryService.loadArchivedConversation(archive.filePath);
+    if (turns.isNotEmpty) {
+      chatHistory
+        ..clear()
+        ..addAll(turns);
+      isOrbCompactTop = true;
+      currentPromptLabel = archive.fileName;
+      currentCenterResponseText = turns.last.text;
+      isResponseWindowOpen = false;
+      _showToastBanner('LOADED ARCHIVE: ${archive.fileName}');
+    }
   }
 
   //********************************************************************
-  // PHASE 3, 5 & 6 // TWO-STAGE WEB GEMINI SELF-PROMPT EXECUTION      *
-  //********************************************************************
-  Future<void> executeUltronPrompt(String rawInput) async {
-    final input = rawInput.trim();
-    if (input.isEmpty) return;
-
-    // 1. Check slash commands (/learn, /learn status, /learn reset, /done)
-    if (input.toLowerCase() == '/learn status') {
-      _appendTurn(
-        sender: 'SYSTEM',
-        model: defaultTriageModel,
-        level: ThinkingLevel.low,
-        text: memoryService.getLearnStatusSummary(),
-      );
-      _showToastBanner('DISPLAYED /learn STATUS.');
-      return;
-    }
-
-    if (input.toLowerCase() == '/learn reset') {
-      memoryService.resetLearnedNotes();
-      _appendTurn(
-        sender: 'SYSTEM',
-        model: defaultTriageModel,
-        level: ThinkingLevel.low,
-        text: 'Wiped learned notes in ultron_memory/learned/ and reset to baseline.',
-      );
-      _showToastBanner('LEARNED NOTES RESET.');
-      return;
-    }
-
-    if (input.toLowerCase() == '/learn') {
-      orbState = OrbState.thinking;
-      notifyListeners();
-      final result = memoryService.runIncrementalLearnPass(
-        activePluginNames: pluginService.installedPlugins
-            .where((p) => p.isEnabled)
-            .map((p) => p.name)
-            .toList(),
-      );
-      orbState = OrbState.standby;
-      _appendTurn(
-        sender: 'TRIAGE (3.5 FLASH-LITE)',
-        model: defaultTriageModel,
-        level: ThinkingLevel.low,
-        text:
-            'Incremental /learn pass complete (Saved Notes & Retrieval).\n'
-            '• Newly processed chat archives: ${result['newlyProcessedChats']}\n'
-            '• Total archived chats indexed: ${result['totalProcessedChats']}\n'
-            '• Updated learned/preferences.md, learned/projects.md, learned/fixes.md.',
-      );
-      _showToastBanner('/learn COMPLETE // NOTES UPDATED.');
-      return;
-    }
-
-    if (memoryService.isDoneTriggerPhrase(input)) {
-      _appendTurn(
-        sender: 'USER',
-        model: activeModelDisplay,
-        level: activeThinkingLevel,
-        text: input,
-      );
-      final savedName = await memoryService.saveConversationToDisk(
-        turns: chatHistory,
-        modifiedFiles: modifiedFilesInSession,
-        shortTitleSlug: chatHistory.first.text.takeWords(4),
-      );
-      _appendTurn(
-        sender: 'SYSTEM',
-        model: defaultTriageModel,
-        level: ThinkingLevel.low,
-        text: 'Conversation redacted and archived to ultron_memory/chats/$savedName',
-      );
-      _showToastBanner('CHAT SAVED // $savedName');
-      return;
-    }
-
-    // 2. Verify Gemini Connection (Never fail silently!)
-    if (!isAnyGeminiConnected) {
-      triggerErrorState(
-        'No Gemini connection active. Open "WEB LINKS & SETTINGS" to enable Web Gemini Bridge or paste an API key.',
-      );
-      return;
-    }
-
-    _appendTurn(
-      sender: 'USER',
-      model: defaultTriageModel,
-      level: ThinkingLevel.low,
-      text: input,
-    );
-
-    // STAGE 1: 3.5 FLASH-LITE [LOW / Nizka] TRIAGE & SELF-PROMPT GENERATION
-    orbState = OrbState.thinking;
-    activeModelDisplay = '3.5 Flash-Lite';
-    activeThinkingLevel = ThinkingLevel.low;
-    _showToastBanner(
-      'STAGE 1 // 3.5 FLASH-LITE [NIZKA] NEW CHAT: EVALUATING MODEL, THINKING LEVEL & SELF-PROMPT...',
-    );
-
-    final learnedContext =
-        memoryService.retrieveRelevantLearnedContext(input, maxChars: 3500);
-    final pluginContext = pluginService.buildLazyLoadedPluginContext(input);
-
-    // Construct the exact Stage-1 Triage Query that gets typed into the New Chat box
-    final stage1TriageQuery =
-        '$input\n\n'
-        '--- [ULTRON TRIAGE META-QUESTION FOR 3.5 FLASH-LITE] ---\n'
-        '1. Which Gemini model from my picker (3.5 Flash-Lite, 3.8 Flash, 3.1 Pro, or 4 Argon) is best for this task, and on what Raven razmišljanja / thinking level (Nizka / Low, Srednja / Medium, or Visoka / High)?\n'
-        '2. Write the optimal self-contained execution prompt (SELF_PROMPT) to paste when switching to that model.';
-
-    final triageResult = _evaluateOptimalWebGeminiRoute(
-      userPrompt: input,
-      learnedContext: learnedContext,
-      pluginContext: pluginContext,
-    );
-
-    await Future.delayed(const Duration(milliseconds: 550));
-
-    final chosenWebModel = triageResult['model']!;
-    final chosenLevel = triageResult['level'] as ThinkingLevel;
-    final selfWrittenPrompt = triageResult['selfPrompt']!;
-    lastSelfWrittenPrompt = selfWrittenPrompt;
-
-    _appendTurn(
-      sender: 'TRIAGE (3.5 FLASH-LITE)',
-      model: '3.5 Flash-Lite',
-      level: ThinkingLevel.low,
-      text:
-          'New Chat Triage Input:\n"$stage1TriageQuery"\n\n'
-          'Triage Verdict -> Switch to **$chosenWebModel** on **${chosenLevel.hudTag}**.\n'
-          'Self-Written Prompt Prepared (${(selfWrittenPrompt.length / 4).ceil()} est. tokens).',
-    );
-
-    // STAGE 2: SWITCH TO CHOSEN MODEL & THINKING LEVEL, PASTE SELF-PROMPT & STREAM
-    activeModelDisplay = chosenWebModel;
-    activeThinkingLevel = chosenLevel;
-    orbState = OrbState.answering;
-    _showToastBanner(
-      'STAGE 2 // SWITCHED TO ${chosenWebModel.toUpperCase()} [${chosenLevel.hudTag}] -> EXECUTING SELF-PROMPT...',
-    );
-
-    try {
-      String finalResponseText = '';
-      int promptTokens = (selfWrittenPrompt.length / 4).ceil();
-      int completionTokens = 0;
-
-      final apiKey = await memoryService.readSecret('gemini_api_key');
-      if (isGeminiApiConnected && apiKey.isNotEmpty) {
-        // Execute real streaming call against verified Gemini REST/SSE API
-        final apiModelId = _resolveRealApiModelId(chosenWebModel);
-        final apiResult = await _streamFromRealGeminiApi(
-          apiKey: apiKey,
-          modelId: apiModelId,
-          selfWrittenPrompt: selfWrittenPrompt,
-        );
-        finalResponseText = apiResult['text'] as String;
-        promptTokens = (apiResult['promptTokens'] as int?) ?? promptTokens;
-        completionTokens =
-            (apiResult['completionTokens'] as int?) ??
-            (finalResponseText.length / 4).ceil();
-      } else {
-        // Execute via Web Gemini Bridge (or copy self-written prompt to clipboard + live surgical synthesis)
-        finalResponseText = await _executeViaWebGeminiBridge(
-          chosenModel: chosenWebModel,
-          chosenLevel: chosenLevel,
-          userPrompt: input,
-          selfWrittenPrompt: selfWrittenPrompt,
-        );
-        completionTokens = (finalResponseText.length / 4).ceil();
-      }
-
-      // Record REAL token & request usage in UsageService
-      memoryService.recordRealApiUsage(
-        promptTokens: promptTokens,
-        completionTokens: completionTokens,
-      );
-
-      _appendTurn(
-        sender: 'ULTRON ($chosenWebModel)',
-        model: chosenWebModel,
-        level: chosenLevel,
-        text: finalResponseText,
-      );
-
-      // If the response or prompt involves code, generate a Surgical Diff Hunk in the VS Code Window!
-      if (_isCodingRequest(input) || finalResponseText.contains('```')) {
-        _proposeSurgicalDiffFromResponse(input, finalResponseText, chosenWebModel);
-      }
-
-      // PHASE 6 RULE: AUTOMATICALLY REVERT ACTIVE MODEL & THINKING LEVEL BACK TO 3.5 FLASH-LITE [LOW]
-      activeModelDisplay = defaultTriageModel;
-      activeThinkingLevel = ThinkingLevel.low;
-      orbState = OrbState.standby;
-      _showToastBanner(
-        'COMPLETED (+${promptTokens + completionTokens} TOKENS) // REVERTED TO 3.5 FLASH-LITE [LOW].',
-      );
-    } catch (e) {
-      activeModelDisplay = defaultTriageModel;
-      activeThinkingLevel = ThinkingLevel.low;
-      triggerErrorState(e.toString());
-    }
-  }
-
-  // Evaluates whether this is chit-chat (stays on 3.5 Flash-Lite [LOW]) or needs escalation
-  Map<String, dynamic> _evaluateOptimalWebGeminiRoute({
-    required String userPrompt,
-    required String learnedContext,
-    required String pluginContext,
-  }) {
-    final lower = userPrompt.toLowerCase();
-    final isChitChat = userPrompt.split(' ').length < 5 &&
-        !lower.contains('code') &&
-        !lower.contains('fix') &&
-        !lower.contains('build') &&
-        !lower.contains('refactor') &&
-        !lower.contains('implement');
-
-    String model = '3.5 Flash-Lite';
-    ThinkingLevel level = ThinkingLevel.low;
-
-    if (!isChitChat) {
-      if (lower.contains('architecture') ||
-          lower.contains('complex') ||
-          lower.contains('security') ||
-          lower.contains('argon') ||
-          lower.contains('engine')) {
-        model = '4 Argon';
-        level = ThinkingLevel.high;
-      } else if (lower.contains('refactor') ||
-          lower.contains('debug') ||
-          lower.contains('service') ||
-          lower.contains('api')) {
-        model = '3.1 Pro';
-        level = ThinkingLevel.medium;
-      } else {
-        model = '3.8 Flash';
-        level = ThinkingLevel.medium;
-      }
-    }
-
-    final activeFileCtx = activeTab != null
-        ? 'Active Workspace File: ${activeTab!.fileName} (${activeTab!.lines.length} lines)'
-        : 'Workspace Root: $workspaceRootPath';
-
-    final selfPrompt = StringBuffer()
-      ..writeln('[ULTRON SELF-WRITTEN EXECUTION PROMPT]')
-      ..writeln('Target Model: $model | Thinking Level: ${level.hudTag}')
-      ..writeln(activeFileCtx);
-
-    if (learnedContext.isNotEmpty) {
-      selfPrompt.writeln('\n[RETRIEVED LEARNED NOTES]:\n$learnedContext');
-    }
-    if (pluginContext.isNotEmpty) {
-      selfPrompt.writeln('\n$pluginContext');
-    }
-    selfPrompt.writeln('\n[USER OBJECTIVE]:\n$userPrompt');
-
-    return {
-      'model': model,
-      'level': level,
-      'selfPrompt': selfPrompt.toString().trim(),
-    };
-  }
-
-  String _resolveRealApiModelId(String webModelName) {
-    if (verifiedApiModels.isEmpty) return 'gemini-2.5-flash';
-    final lower = webModelName.toLowerCase();
-    if (lower.contains('lite')) {
-      return verifiedApiModels.firstWhere(
-        (m) => m.contains('flash-lite') || m.contains('flash'),
-        orElse: () => verifiedApiModels.first,
-      );
-    }
-    if (lower.contains('pro') || lower.contains('argon')) {
-      return verifiedApiModels.firstWhere(
-        (m) => m.contains('pro'),
-        orElse: () => verifiedApiModels.first,
-      );
-    }
-    return verifiedApiModels.firstWhere(
-      (m) => m.contains('flash'),
-      orElse: () => verifiedApiModels.first,
-    );
-  }
-
-  Future<Map<String, dynamic>> _streamFromRealGeminiApi({
-    required String apiKey,
-    required String modelId,
-    required String selfWrittenPrompt,
-  }) async {
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 15);
-    final uri = Uri.parse(
-      'https://generativelanguage.googleapis.com/v1beta/models/$modelId:generateContent?key=$apiKey',
-    );
-    final req = await client.postUrl(uri);
-    req.headers.set('Content-Type', 'application/json');
-    req.add(
-      utf8.encode(
-        jsonEncode({
-          'contents': [
-            {
-              'parts': [
-                {'text': selfWrittenPrompt},
-              ],
-            },
-          ],
-        }),
-      ),
-    );
-
-    final resp = await req.close();
-    final body = await resp.transform(utf8.decoder).join();
-    client.close();
-
-    if (resp.statusCode != 200) {
-      throw Exception('Gemini HTTP ${resp.statusCode}: $body');
-    }
-
-    final map = jsonDecode(body) as Map<String, dynamic>;
-    final candidates = (map['candidates'] as List<dynamic>? ?? []);
-    if (candidates.isEmpty) {
-      throw Exception('Gemini returned 0 candidates.');
-    }
-
-    final content =
-        (candidates.first as Map<String, dynamic>)['content'] as Map<String, dynamic>?;
-    final parts = (content?['parts'] as List<dynamic>? ?? []);
-    final text = parts
-        .map((p) => ((p as Map<String, dynamic>)['text'] ?? '').toString())
-        .join('\n');
-
-    final usage = map['usageMetadata'] as Map<String, dynamic>? ?? {};
-    final pTok = (usage['promptTokenCount'] as num?)?.toInt() ?? 0;
-    final cTok = (usage['candidatesTokenCount'] as num?)?.toInt() ?? 0;
-
-    return {
-      'text': text,
-      'promptTokens': pTok,
-      'completionTokens': cTok,
-    };
-  }
-
-  Future<String> _executeViaWebGeminiBridge({
-    required String chosenModel,
-    required ThinkingLevel chosenLevel,
-    required String userPrompt,
-    required String selfWrittenPrompt,
-  }) async {
-    try {
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 2);
-      final req = await client.postUrl(
-        Uri.parse('http://127.0.0.1:8765/ultron/web-gemini'),
-      );
-      req.headers.set('Content-Type', 'application/json');
-      req.add(
-        utf8.encode(
-          jsonEncode({
-            'prompt': userPrompt,
-            'recommendedModel': chosenModel,
-            'recommendedThinking': chosenLevel.hudTag,
-            'selfPrompt': selfWrittenPrompt,
-          }),
-        ),
-      );
-      final resp = await req.close();
-      final body = await resp.transform(utf8.decoder).join();
-      client.close();
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(body) as Map<String, dynamic>;
-        return (data['response'] ?? '').toString();
-      }
-    } catch (_) {}
-
-    return 'Executed 2-Stage Web Gemini Flow:\n'
-        '1. Opened New Chat ("Nov klepet") on 3.5 Flash-Lite [Nizka].\n'
-        '2. Selected Model: $chosenModel | Thinking Level: ${chosenLevel.hudTag}.\n'
-        '3. Pasted Self-Written Prompt & prepared surgical diff in the Live Code Editor.';
-  }
-
-  bool _isCodingRequest(String text) {
-    final l = text.toLowerCase();
-    return l.contains('code') ||
-        l.contains('fix') ||
-        l.contains('add') ||
-        l.contains('implement') ||
-        l.contains('refactor') ||
-        l.contains('function') ||
-        l.contains('patch');
-  }
-
-  //********************************************************************
-  // PHASE 6 // WORKSPACE CONFINEMENT, MULTI-TAB EDITOR & DIFF HUNKS   *
+  // 5. WORKSPACE FILE SYSTEM & MULTI-TAB CODE EDITOR                  *
   //********************************************************************
   bool isPathInsideWorkspace(String candidatePath) {
     try {
       final normRoot = Directory(workspaceRootPath).absolute.path;
       final normTarget = File(candidatePath).absolute.path;
       return normTarget.startsWith(normRoot) ||
-          normTarget.startsWith(memoryService.memoryRootDir.path);
+          normTarget.startsWith(memoryService.memoryRootDir.path) ||
+          normTarget.startsWith('$userHome/Projects') ||
+          normTarget.startsWith(desktopProjectsDir);
     } catch (_) {
       return false;
     }
@@ -1048,7 +993,7 @@ class UltronBrainRouter extends ChangeNotifier {
       desktopProjectsDir,
       memoryService.memoryRootDir.path,
     ];
-    return dirs.where((p) => Directory(p).existsSync()).toList();
+    return dirs.where((p) => Directory(p).existsSync()).toSet().toList();
   }
 
   List<FileSystemEntity> listEntitiesForDirectory(
@@ -1090,6 +1035,7 @@ class UltronBrainRouter extends ChangeNotifier {
     workspaceRootPath = dirPath;
     currentFolderEntities =
         listEntitiesForDirectory(dirPath, filter: searchQuery);
+    _detectGitBranch();
     notifyListeners();
   }
 
@@ -1100,7 +1046,7 @@ class UltronBrainRouter extends ChangeNotifier {
     searchQuery = '';
     refreshDirectoryEntities(folderPath);
     _showToastBanner(
-      'PINNED FOLDER: ${folderPath.split(Platform.pathSeparator).last}',
+      'PINNED PROJECT: ${folderPath.split(Platform.pathSeparator).last}',
     );
   }
 
@@ -1114,7 +1060,7 @@ class UltronBrainRouter extends ChangeNotifier {
     pinnedFilePath = null;
     searchQuery = '';
     refreshDirectoryEntities(Directory.current.path);
-    _showToastBanner('STACK RETURNED TO HOME.');
+    _showToastBanner('STACK RETURNED TO HOME');
   }
 
   void updateSearchInPinnedFolder(String query) {
@@ -1205,7 +1151,6 @@ class UltronBrainRouter extends ChangeNotifier {
     return 'CLEAN';
   }
 
-  // Creates a backup snapshot before writing any edit
   String _createPreEditBackupSnapshot(OpenEditorTab tab) {
     final ts = DateTime.now().millisecondsSinceEpoch;
     final backupPath =
@@ -1230,7 +1175,7 @@ class UltronBrainRouter extends ChangeNotifier {
     if (!modifiedFilesInSession.contains(tab.fileName)) {
       modifiedFilesInSession.add(tab.fileName);
     }
-    _showToastBanner('SAVED ${tab.fileName} (BACKUP SNAPSHOT CREATED).');
+    _showToastBanner('SAVED ${tab.fileName}');
   }
 
   void undoLastEditOnActiveTab() {
@@ -1244,47 +1189,7 @@ class UltronBrainRouter extends ChangeNotifier {
     final restored = bak.readAsStringSync();
     tab.lines = restored.split('\n');
     File(tab.filePath).writeAsStringSync(restored);
-    _showToastBanner('RESTORED ${tab.fileName} FROM BACKUP SNAPSHOT.');
-  }
-
-  void _proposeSurgicalDiffFromResponse(
-    String prompt,
-    String responseText,
-    String modelUsed,
-  ) {
-    if (openTabs.isEmpty) {
-      final fallback = File('$workspaceRootPath/lib/main.dart').existsSync()
-          ? '$workspaceRootPath/lib/main.dart'
-          : '$workspaceRootPath/README.md';
-      openFileInEditorTab(fallback, autoOpenWindow: true);
-    }
-    isVsCodeWindowOpen = true;
-    final tab = activeTab;
-    if (tab == null) return;
-
-    final startLine = (tab.lines.length > 6) ? tab.lines.length - 4 : 1;
-    final orig = tab.lines.sublist(startLine - 1);
-    final proposed = <String>[
-      ...orig,
-      '// [ULTRON SURGICAL HUNK // $modelUsed]',
-      '// Objective: ${prompt.replaceAll('\n', ' ')}',
-    ];
-
-    final hunk = DiffHunkProposal(
-      id: 'hunk_${DateTime.now().millisecondsSinceEpoch}',
-      filePath: tab.filePath,
-      startLine: startLine,
-      originalLines: orig,
-      proposedLines: proposed,
-      description: 'Proposed surgical change by $modelUsed',
-    );
-
-    if (autoApplyEdits) {
-      acceptDiffHunk(hunk);
-    } else {
-      pendingDiffHunks.insert(0, hunk);
-      notifyListeners();
-    }
+    _showToastBanner('RESTORED ${tab.fileName} FROM BACKUP');
   }
 
   void acceptDiffHunk(DiffHunkProposal hunk) {
@@ -1292,7 +1197,8 @@ class UltronBrainRouter extends ChangeNotifier {
     if (tabIdx >= 0) {
       final tab = openTabs[tabIdx];
       _createPreEditBackupSnapshot(tab);
-      final prefix = tab.lines.sublist(0, (hunk.startLine - 1).clamp(0, tab.lines.length));
+      final prefix = tab.lines
+          .sublist(0, (hunk.startLine - 1).clamp(0, tab.lines.length));
       tab.lines = [...prefix, ...hunk.proposedLines];
       tab.gitStatusBadge = 'M';
       File(tab.filePath).writeAsStringSync(tab.lines.join('\n'));
@@ -1302,13 +1208,13 @@ class UltronBrainRouter extends ChangeNotifier {
     }
     hunk.isAccepted = true;
     pendingDiffHunks.remove(hunk);
-    _showToastBanner('DIFF HUNK ACCEPTED & WRITTEN TO DISK.');
+    _showToastBanner('DIFF ACCEPTED & WRITTEN TO DISK');
   }
 
   void rejectDiffHunk(DiffHunkProposal hunk) {
     hunk.isRejected = true;
     pendingDiffHunks.remove(hunk);
-    _showToastBanner('DIFF HUNK REJECTED (DISK UNCHANGED).');
+    _showToastBanner('DIFF REJECTED');
   }
 
   Future<void> openActiveFileInRealVsCode({int line = 1}) async {
@@ -1346,18 +1252,19 @@ class UltronBrainRouter extends ChangeNotifier {
 
   Future<void> cloneRepoToDesktop(GitHubRepoEntry repo) async {
     final target = '$desktopProjectsDir/${repo.name}';
-    _showToastBanner('CLONING ${repo.fullName} TO $target...');
+    _showToastBanner('CLONING ${repo.fullName}...');
     try {
       final root = Directory(desktopProjectsDir);
       if (!root.existsSync()) root.createSync(recursive: true);
       if (!Directory(target).existsSync()) {
-        await Process.run('git', ['clone', '--depth', '1', repo.cloneUrl, target]);
+        await Process.run(
+            'git', ['clone', '--depth', '1', repo.cloneUrl, target]);
       }
       repo.isCloned = true;
       repo.localPath = target;
       pinFolderOnTop(target);
       isVsCodeWindowOpen = true;
-      _showToastBanner('CLONED & MOUNTED ${repo.name}.');
+      _showToastBanner('CLONED & MOUNTED ${repo.name}');
     } catch (e) {
       triggerErrorState('Git clone failed: $e');
     }
@@ -1366,7 +1273,7 @@ class UltronBrainRouter extends ChangeNotifier {
   void _appendTurn({
     required String sender,
     required String model,
-    required ThinkingLevel level,
+    required String level,
     required String text,
   }) {
     chatHistory.add(
@@ -1374,7 +1281,7 @@ class UltronBrainRouter extends ChangeNotifier {
         timestamp: DateTime.now(),
         sender: sender,
         modelUsed: model,
-        thinkingLevel: level.hudTag,
+        thinkingLevel: level,
         text: text,
       ),
     );

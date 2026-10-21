@@ -3,12 +3,8 @@ import '../backend/ultron_brain_router.dart';
 import 'ultron_hud_theme.dart';
 
 //**********************************************************************
-// PHASE 6 // BUILT-IN EDITABLE VS CODE WINDOW & DIFF HUNK REVIEWER    *
-// Features:                                                           *
-// - Multi-tab bar with Git status indicators (M, CLEAN)               *
-// - Editable code buffer with syntax highlighting & Save / Undo       *
-// - Interactive Diff Hunk queue (ACCEPT HUNK / REJECT HUNK)           *
-// - Auto-Apply toggle & external Code-OSS launcher                    *
+// BUILT-IN EDITABLE VS CODE WINDOW WITH LIVE AI CODE STREAMING        *
+// Automatically updates and scrolls as Ultron writes code in real time*
 //**********************************************************************
 
 class VsCodeLiveSurgicalWindow extends StatefulWidget {
@@ -29,11 +25,13 @@ class VsCodeLiveSurgicalWindow extends StatefulWidget {
 class _VsCodeLiveSurgicalWindowState extends State<VsCodeLiveSurgicalWindow> {
   final SyntaxHighlightingController _editorController =
       SyntaxHighlightingController();
+  final ScrollController _scrollController = ScrollController();
   String _loadedTabPath = '';
 
   @override
   void dispose() {
     _editorController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -46,7 +44,20 @@ class _VsCodeLiveSurgicalWindowState extends State<VsCodeLiveSurgicalWindow> {
     final joined = tab.lines.join('\n');
     if (_loadedTabPath != tab.filePath || _editorController.text != joined) {
       _loadedTabPath = tab.filePath;
-      _editorController.text = joined;
+      _editorController.value = TextEditingValue(
+        text: joined,
+        selection: TextSelection.collapsed(offset: joined.length),
+      );
+      if (widget.brain.activeStreamingLineInEditor >= 0 &&
+          _scrollController.hasClients) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_scrollController.hasClients) {
+            _scrollController.jumpTo(
+              _scrollController.position.maxScrollExtent,
+            );
+          }
+        });
+      }
     }
   }
 
@@ -58,35 +69,47 @@ class _VsCodeLiveSurgicalWindowState extends State<VsCodeLiveSurgicalWindow> {
     final tab = brain.activeTab;
     _syncControllerWithActiveTab(tab);
 
+    final isLiveWriting = brain.activeStreamingLineInEditor >= 0;
+
     return HudBracketPanel(
       padding: const EdgeInsets.all(14),
-      borderColor: hud.primaryPeriwinkle,
+      borderColor:
+          isLiveWriting ? hud.accentSuccessGreen : hud.primaryPeriwinkle,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // 1. TOP TOOLBAR
           Row(
             children: [
-              Icon(Icons.terminal_sharp, size: 16, color: hud.primaryPeriwinkle),
+              Icon(
+                isLiveWriting ? Icons.bolt_sharp : Icons.terminal_sharp,
+                size: 16,
+                color: isLiveWriting
+                    ? hud.accentSuccessGreen
+                    : hud.primaryPeriwinkle,
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'LIVE WORKSPACE EDITOR // ${tab?.fileName ?? "NO FILE"} [GIT: ${tab?.gitStatusBadge ?? "N/A"}]',
+                  isLiveWriting
+                      ? 'ULTRON WRITING LIVE -> ${tab?.fileName ?? "BUFFER"}'
+                      : 'VS CODE LIVE STUDIO // ${tab?.fileName ?? "NO FILE"} [${tab?.gitStatusBadge ?? "CLEAN"}]',
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 11.5,
+                    fontSize: 11,
                     fontWeight: FontWeight.w800,
-                    letterSpacing: 0.9,
-                    color: hud.textPrimary,
+                    letterSpacing: 0.8,
+                    color: isLiveWriting
+                        ? hud.accentSuccessGreen
+                        : hud.textPrimary,
                   ),
                 ),
               ),
-              // Auto-Apply Diff Toggle
               HudActionButton(
-                label: brain.autoApplyEdits ? 'AUTO-APPLY: ON' : 'AUTO-APPLY: OFF',
+                label: brain.autoApplyEdits ? 'LIVE WRITE: ON' : 'DIFF MODE',
                 accentColor: brain.autoApplyEdits
                     ? hud.accentSuccessGreen
-                    : hud.textMuted,
+                    : hud.accentWarningAmber,
                 onTap: () {
                   brain.autoApplyEdits = !brain.autoApplyEdits;
                   setState(() {});
@@ -139,7 +162,7 @@ class _VsCodeLiveSurgicalWindowState extends State<VsCodeLiveSurgicalWindow> {
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
                           color: isSel
-                              ? hud.primaryPeriwinkle.withValues(alpha: 0.2)
+                              ? hud.primaryPeriwinkle.withValues(alpha: 0.20)
                               : hud.bgInput,
                           border: Border.all(
                             color:
@@ -204,7 +227,7 @@ class _VsCodeLiveSurgicalWindowState extends State<VsCodeLiveSurgicalWindow> {
                   Row(
                     children: [
                       HudActionButton(
-                        label: 'ACCEPT HUNK (WRITE TO DISK)',
+                        label: 'ACCEPT HUNK',
                         accentColor: hud.accentSuccessGreen,
                         isPrimaryAccent: true,
                         onTap: () =>
@@ -232,16 +255,19 @@ class _VsCodeLiveSurgicalWindowState extends State<VsCodeLiveSurgicalWindow> {
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 color: hud.bgInput,
-                border: Border.all(color: hud.borderLine),
+                border: Border.all(
+                  color: isLiveWriting ? hud.accentSuccessGreen : hud.borderLine,
+                ),
               ),
               child: TextField(
                 controller: _editorController,
+                scrollController: _scrollController,
                 maxLines: null,
                 expands: true,
                 style: const TextStyle(
                   fontFamily: 'monospace',
                   fontSize: 11.5,
-                  height: 1.45,
+                  height: 1.48,
                 ),
                 decoration: const InputDecoration(
                   border: InputBorder.none,
@@ -256,7 +282,6 @@ class _VsCodeLiveSurgicalWindowState extends State<VsCodeLiveSurgicalWindow> {
   }
 }
 
-// Lightweight syntax highlighting controller for Dart/Markdown/JSON
 class SyntaxHighlightingController extends TextEditingController {
   @override
   TextSpan buildTextSpan({
@@ -277,7 +302,8 @@ class SyntaxHighlightingController extends TextEditingController {
       } else if (line.contains('class ') ||
           line.contains('void ') ||
           line.contains('Future<') ||
-          line.contains('import ')) {
+          line.contains('import ') ||
+          line.contains('Widget ')) {
         lineColor = hud.primaryPeriwinkle;
       } else if (line.contains('return ') || line.contains('final ')) {
         lineColor = hud.accentSuccessGreen;

@@ -323,7 +323,7 @@ class PluginManagerService extends ChangeNotifier {
       final client = HttpClient()
         ..connectionTimeout = const Duration(seconds: 6);
       final req = await client.getUrl(
-        Uri.parse('[https://api.github.com/search/repositories?q=$q&per_page=15](https://api.github.com/search/repositories?q=$q&per_page=15)'),
+        Uri.parse('https://api.github.com/search/repositories?q=$q&per_page=15'),
       );
       req.headers.set('User-Agent', 'Ultron-Neural-Consciousness');
       req.headers.set('Accept', 'application/vnd.github+json');
@@ -369,10 +369,10 @@ class PluginManagerService extends ChangeNotifier {
     String? githubToken,
   }) async {
     final clean =
-        repoUrl.trim().replaceAll('.git', '').replaceAll('[https://github.com/](https://github.com/)', '');
+        repoUrl.trim().replaceAll('.git', '').replaceAll('https://github.com/', '');
     final parts = clean.split('/').where((s) => s.isNotEmpty).toList();
     if (parts.length < 2) {
-      statusMessage = 'Invalid GitHub URL. Expected [https://github.com/owner/repo](https://github.com/owner/repo)';
+      statusMessage = 'Invalid GitHub URL. Expected https://github.com/owner/repo';
       notifyListeners();
       return null;
     }
@@ -390,7 +390,7 @@ class PluginManagerService extends ChangeNotifier {
       final client = HttpClient()
         ..connectionTimeout = const Duration(seconds: 6);
       final commitReq = await client.getUrl(
-        Uri.parse('[https://api.github.com/repos/$owner/$repo/commits?per_page=1](https://api.github.com/repos/$owner/$repo/commits?per_page=1)'),
+        Uri.parse('https://api.github.com/repos/$owner/$repo/commits?per_page=1'),
       );
       commitReq.headers.set('User-Agent', 'Ultron-Neural-Consciousness');
       if (githubToken != null && githubToken.isNotEmpty) {
@@ -409,7 +409,7 @@ class PluginManagerService extends ChangeNotifier {
 
       // Attempt to read README.md or SKILL.md at that commit SHA
       final rawReq = await client.getUrl(
-        Uri.parse('[https://raw.githubusercontent.com/$owner/$repo/$commitSha/README.md](https://raw.githubusercontent.com/$owner/$repo/$commitSha/README.md)'),
+        Uri.parse('https://raw.githubusercontent.com/$owner/$repo/$commitSha/README.md'),
       );
       final rawResp = await rawReq.close();
       if (rawResp.statusCode == 200) {
@@ -430,7 +430,7 @@ class PluginManagerService extends ChangeNotifier {
       fullSkillMarkdown: skillContent,
       fileList: ['ultron-plugin.json', 'SKILL.md'],
       pinnedCommitSha: commitSha,
-      sourceRepoUrl: '[https://github.com/$owner/$repo](https://github.com/$owner/$repo)',
+      sourceRepoUrl: 'https://github.com/$owner/$repo',
       isEnabled: false, // Disabled by default! Requires user inspection
       isInspectedAndApproved: false,
     );

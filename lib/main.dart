@@ -5,6 +5,8 @@ import 'frontend/ultron_hud_theme.dart';
 
 //**********************************************************************
 // ULTRON // NEURAL CONSCIOUSNESS ENTRY POINT                          *
+// Boots the local Qwen2.5-Coder-14B engine, project code learner,     *
+// Git automation bridge, and interactive 3D HUD workspace.            *
 //**********************************************************************
 
 void main() {
@@ -20,6 +22,7 @@ class UltronNeuralApp extends StatefulWidget {
 }
 
 class _UltronNeuralAppState extends State<UltronNeuralApp> {
+  // True = Deep Void Dark Mode, False = Technical Daylight Mode
   bool _isDarkMode = true;
   late final UltronBrainRouter _brain;
 
@@ -38,7 +41,7 @@ class _UltronNeuralAppState extends State<UltronNeuralApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'ULTRON // NEURAL CONSCIOUSNESS',
+      title: 'ULTRON // LOCAL QWEN 14B & GIT STUDIO',
       debugShowCheckedModeBanner: false,
       theme: UltronHudTheme.buildThemeData(_isDarkMode),
       home: UltronDashboardScreen(

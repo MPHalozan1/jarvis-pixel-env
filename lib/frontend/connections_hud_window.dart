@@ -1,14 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../backend/ultron_brain_router.dart';
 import 'ultron_hud_theme.dart';
 
 //**********************************************************************
-// PHASE 4 // SHARP HUD CONNECTIONS & USAGE LIMITS WINDOW              *
-// Three Cards:                                                        *
-// 1. GEMINI: Web Gemini Self-Prompt Bridge + Gemini API Key Verifier  *
-// 2. GITHUB: OAuth Device Flow + PAT Fallback + Real /rate_limit      *
-// 3. JULES: Official Jules v1alpha API + Web Session Launcher         *
+// LOCAL OLLAMA ENGINE & GITHUB GIT CONTROL HUD WINDOW                 *
+// - Configures local Ollama (http://127.0.0.1:11434) & Qwen 14B model *
+// - GitHub PAT / Device Flow login + Direct Git Pull / Commit / Push  *
 //**********************************************************************
 
 class ConnectionsHudWindow extends StatefulWidget {
@@ -26,35 +23,25 @@ class ConnectionsHudWindow extends StatefulWidget {
 }
 
 class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
-  final TextEditingController _geminiKeyCtrl = TextEditingController();
+  late final TextEditingController _ollamaUrlCtrl;
   final TextEditingController _ghTokenCtrl = TextEditingController();
   final TextEditingController _ghClientIdCtrl = TextEditingController();
-  final TextEditingController _ghUserCtrl = TextEditingController();
-  final TextEditingController _julesKeyCtrl = TextEditingController();
-  late final TextEditingController _dailyLimitCtrl;
-  late final TextEditingController _weeklyLimitCtrl;
+  final TextEditingController _commitMsgCtrl = TextEditingController(
+    text: 'feat: update via Ultron Qwen2.5-Coder-14B',
+  );
 
   @override
   void initState() {
     super.initState();
-    _ghUserCtrl.text = widget.brain.githubUsername;
-    _dailyLimitCtrl = TextEditingController(
-      text: '${widget.brain.memoryService.dailyRequestLimit}',
-    );
-    _weeklyLimitCtrl = TextEditingController(
-      text: '${widget.brain.memoryService.weeklyRequestLimit}',
-    );
+    _ollamaUrlCtrl = TextEditingController(text: widget.brain.ollamaBaseUrl);
   }
 
   @override
   void dispose() {
-    _geminiKeyCtrl.dispose();
+    _ollamaUrlCtrl.dispose();
     _ghTokenCtrl.dispose();
     _ghClientIdCtrl.dispose();
-    _ghUserCtrl.dispose();
-    _julesKeyCtrl.dispose();
-    _dailyLimitCtrl.dispose();
-    _weeklyLimitCtrl.dispose();
+    _commitMsgCtrl.dispose();
     super.dispose();
   }
 
@@ -65,31 +52,30 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
     final brain = widget.brain;
 
     return SizedBox(
-      width: 860,
-      height: 580,
+      width: 840,
+      height: 560,
       child: HudBracketPanel(
         padding: const EdgeInsets.all(18),
         borderColor: hud.primaryPeriwinkle,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header
             Row(
               children: [
-                Icon(Icons.hub_outlined, size: 17, color: hud.primaryPeriwinkle),
+                Icon(Icons.memory_sharp, size: 17, color: hud.primaryPeriwinkle),
                 const SizedBox(width: 8),
                 Text(
-                  'CONNECTIONS // GEMINI WEB BRIDGE, GITHUB & JULES API',
+                  'LOCAL OLLAMA ENGINE (QWEN2.5-CODER:14B) & GITHUB GIT CONTROL',
                   style: TextStyle(
-                    fontSize: 12.5,
+                    fontSize: 12,
                     fontWeight: FontWeight.w800,
-                    letterSpacing: 1.2,
+                    letterSpacing: 1.1,
                     color: hud.textPrimary,
                   ),
                 ),
                 const Spacer(),
                 HudActionButton(
-                  label: 'CLOSE [ESC]',
+                  label: 'CLOSE',
                   icon: Icons.close,
                   accentColor: hud.accentErrorRed,
                   onTap: widget.onClose,
@@ -101,68 +87,27 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
             Expanded(
               child: ListView(
                 children: [
-                  // CARD 1: GEMINI (WEB BRIDGE + API KEY)
-                  _buildServiceCard(
+                  // CARD 1: LOCAL OLLAMA ENGINE
+                  _buildSectionCard(
                     hud: hud,
-                    title: '01 // GEMINI (WEB SELF-PROMPT BRIDGE & REST API)',
-                    isConnected: brain.isAnyGeminiConnected,
-                    statusLabel: brain.isGeminiWebBridgeOnline
-                        ? 'CONNECTED (WEB BRIDGE)'
-                        : (brain.isGeminiApiConnected
-                            ? 'CONNECTED (${brain.verifiedApiModels.length} API MODELS)'
-                            : 'NOT CONNECTED'),
+                    title: '01 // LOCAL OLLAMA ENGINE (INTEL ARC B570)',
+                    isConnected: brain.isOllamaOnline,
+                    statusLabel: brain.isOllamaOnline
+                        ? 'ONLINE (${brain.activeLocalModel})'
+                        : 'OFFLINE',
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          'Web Workflow: Opens Nov klepet on 3.5 Flash-Lite [Nizka] -> Asks best model (3.5 Flash-Lite, 3.8 Flash, 3.1 Pro, 4 Argon) & Raven razmišljanja (Nizka/Srednja/Visoka) -> Switches & pastes self-written prompt.',
-                          style: TextStyle(fontSize: 10.5, color: hud.textMuted),
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            HudActionButton(
-                              label: 'CONNECT WEB GEMINI (NOV KLEPET BRIDGE)',
-                              icon: Icons.open_in_browser,
-                              isPrimaryAccent: true,
-                              accentColor: hud.primaryPeriwinkle,
-                              onTap: brain.launchWebGeminiBridgeAndBrowser,
-                            ),
-                            const SizedBox(width: 8),
-                            if (brain.lastSelfWrittenPrompt.isNotEmpty)
-                              HudActionButton(
-                                label: 'COPY LAST SELF-PROMPT',
-                                icon: Icons.copy,
-                                onTap: () {
-                                  Clipboard.setData(
-                                    ClipboardData(
-                                      text: brain.lastSelfWrittenPrompt,
-                                    ),
-                                  );
-                                },
-                              ),
-                            const Spacer(),
-                            if (brain.isAnyGeminiConnected)
-                              HudActionButton(
-                                label: 'DISCONNECT',
-                                accentColor: hud.accentErrorRed,
-                                onTap: brain.disconnectGemini,
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
                         Row(
                           children: [
                             Expanded(
                               child: SizedBox(
                                 height: 32,
                                 child: TextField(
-                                  controller: _geminiKeyCtrl,
-                                  obscureText: true,
+                                  controller: _ollamaUrlCtrl,
                                   style: const TextStyle(fontSize: 11),
                                   decoration: InputDecoration(
-                                    hintText:
-                                        'Optional: Paste Google AI Studio API Key (Stored in flutter_secure_storage)',
+                                    labelText: 'Ollama Local Endpoint',
                                     isDense: true,
                                     filled: true,
                                     fillColor: hud.bgInput,
@@ -175,29 +120,131 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
                             ),
                             const SizedBox(width: 8),
                             HudActionButton(
-                              label: 'VERIFY API KEY & MODELS',
-                              icon: Icons.verified_outlined,
-                              onTap: () =>
-                                  brain.connectGeminiApiKey(_geminiKeyCtrl.text),
+                              label: 'PING & DETECT MODELS',
+                              icon: Icons.refresh,
+                              isPrimaryAccent: true,
+                              accentColor: hud.primaryPeriwinkle,
+                              onTap: () {
+                                brain.ollamaBaseUrl =
+                                    _ollamaUrlCtrl.text.trim();
+                                brain.checkLocalOllamaHealth();
+                              },
                             ),
                           ],
+                        ),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          children: brain.installedOllamaModels.map((m) {
+                            final isSel = m == brain.activeLocalModel;
+                            return HudActionButton(
+                              label: m,
+                              icon: isSel
+                                  ? Icons.check_circle_outline
+                                  : Icons.smart_toy_outlined,
+                              isPrimaryAccent: isSel,
+                              accentColor: isSel
+                                  ? hud.accentSuccessGreen
+                                  : hud.primaryPeriwinkle,
+                              onTap: () => brain.selectLocalOllamaModel(m),
+                            );
+                          }).toList(),
                         ),
                       ],
                     ),
                   ),
                   const SizedBox(height: 12),
 
-                  // CARD 2: GITHUB (OAUTH DEVICE FLOW + PAT + REAL RATE LIMIT)
-                  _buildServiceCard(
+                  // CARD 2: GIT PULL / COMMIT / PUSH AUTOMATION
+                  _buildSectionCard(
                     hud: hud,
                     title:
-                        '02 // GITHUB (DEVICE FLOW, PAT & REAL /rate_limit: ${brain.githubRateLimitRemaining}/${brain.githubRateLimitTotal})',
-                    isConnected: brain.isGithubConnected,
-                    statusLabel: brain.isGithubConnected
-                        ? 'CONNECTED (@${brain.githubUsername} • ${brain.githubRepos.length} REPOS)'
-                        : 'NOT CONNECTED',
+                        '02 // WORKSPACE GIT AUTOMATION (BRANCH: ${brain.currentGitBranch.toUpperCase()})',
+                    isConnected: true,
+                    statusLabel: 'WORKSPACE: ${brain.workspaceRootPath.split('/').last}',
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: SizedBox(
+                                height: 32,
+                                child: TextField(
+                                  controller: _commitMsgCtrl,
+                                  style: const TextStyle(fontSize: 11),
+                                  decoration: InputDecoration(
+                                    hintText: 'Git commit message...',
+                                    isDense: true,
+                                    filled: true,
+                                    fillColor: hud.bgInput,
+                                    border: const OutlineInputBorder(
+                                      borderRadius: BorderRadius.zero,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            HudActionButton(
+                              label: 'GIT PULL',
+                              icon: Icons.download_sharp,
+                              onTap: brain.gitPull,
+                            ),
+                            const SizedBox(width: 6),
+                            HudActionButton(
+                              label: 'GIT COMMIT',
+                              icon: Icons.check_sharp,
+                              accentColor: hud.accentSuccessGreen,
+                              onTap: () => brain.gitCommitAndPush(
+                                commitMessage: _commitMsgCtrl.text,
+                                pushAfter: false,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            HudActionButton(
+                              label: 'COMMIT & PUSH',
+                              icon: Icons.cloud_upload_sharp,
+                              isPrimaryAccent: true,
+                              accentColor: hud.primaryPeriwinkle,
+                              onTap: () => brain.gitCommitAndPush(
+                                commitMessage: _commitMsgCtrl.text,
+                                pushAfter: true,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(8),
+                          color: hud.bgInput,
+                          child: Text(
+                            'LAST GIT OUTPUT: ${brain.lastGitCommandOutput}',
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: hud.textMuted,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // CARD 3: GITHUB SIGN-IN (PAT OR OAUTH DEVICE FLOW)
+                  _buildSectionCard(
+                    hud: hud,
+                    title:
+                        '03 // GITHUB AUTHENTICATION (RATE LIMIT: ${brain.githubRateLimitRemaining}/${brain.githubRateLimitTotal})',
+                    isConnected: brain.isGithubConnected,
+                    statusLabel: brain.isGithubConnected
+                        ? 'SIGNED IN (@${brain.githubUsername})'
+                        : 'PUBLIC / CLI MODE',
+                    child: Column(
                       children: [
                         Row(
                           children: [
@@ -223,10 +270,17 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
                             ),
                             const SizedBox(width: 8),
                             HudActionButton(
-                              label: 'CONNECT PAT',
-                              icon: Icons.key,
+                              label: 'SIGN IN WITH PAT',
+                              icon: Icons.key_sharp,
+                              onTap: () => brain
+                                  .connectGithubWithToken(_ghTokenCtrl.text),
+                            ),
+                            const SizedBox(width: 8),
+                            HudActionButton(
+                              label: 'OPEN GITHUB.COM',
+                              icon: Icons.open_in_new,
                               onTap: () =>
-                                  brain.connectGithubWithToken(_ghTokenCtrl.text),
+                                  brain.openWebUrl(brain.githubWebUrl),
                             ),
                           ],
                         ),
@@ -241,7 +295,7 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
                                   style: const TextStyle(fontSize: 11),
                                   decoration: InputDecoration(
                                     hintText:
-                                        'Or OAuth Client ID for github.com/login/device flow',
+                                        'Or GitHub OAuth Client ID for github.com/login/device',
                                     isDense: true,
                                     filled: true,
                                     fillColor: hud.bgInput,
@@ -254,113 +308,13 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
                             ),
                             const SizedBox(width: 8),
                             HudActionButton(
-                              label: 'START DEVICE FLOW',
-                              icon: Icons.devices,
-                              onTap: () => brain
-                                  .startGithubDeviceFlow(_ghClientIdCtrl.text),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // CARD 3: JULES (OFFICIAL v1alpha API + WEB SESSION)
-                  _buildServiceCard(
-                    hud: hud,
-                    title: '03 // GOOGLE JULES (v1alpha API & WEB SESSION)',
-                    isConnected: brain.isJulesConnected,
-                    statusLabel: brain.isJulesConnected
-                        ? 'CONNECTED (${brain.julesSessions.length} SESSIONS)'
-                        : 'NOT CONNECTED',
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: SizedBox(
-                            height: 32,
-                            child: TextField(
-                              controller: _julesKeyCtrl,
-                              obscureText: true,
-                              style: const TextStyle(fontSize: 11),
-                              decoration: InputDecoration(
-                                hintText:
-                                    'Jules API Key (GET https://jules.googleapis.com/v1alpha/sessions)',
-                                isDense: true,
-                                filled: true,
-                                fillColor: hud.bgInput,
-                                border: const OutlineInputBorder(
-                                  borderRadius: BorderRadius.zero,
-                                ),
+                              label: 'DEVICE FLOW SIGN-IN',
+                              icon: Icons.devices_sharp,
+                              onTap: () => brain.startGithubDeviceFlow(
+                                _ghClientIdCtrl.text,
                               ),
                             ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        HudActionButton(
-                          label: 'CONNECT JULES API',
-                          onTap: () => brain.connectJulesApi(_julesKeyCtrl.text),
-                        ),
-                        const SizedBox(width: 8),
-                        HudActionButton(
-                          label: 'OPEN JULES WEB',
-                          icon: Icons.open_in_new,
-                          onTap: () => brain.openWebUrl(brain.julesWebUrl),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // EDITABLE USAGE LIMITS
-                  HudBracketPanel(
-                    padding: const EdgeInsets.all(12),
-                    child: Row(
-                      children: [
-                        Text(
-                          'LOCAL USAGE LIMITS (EDITABLE):',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            color: hud.primaryPeriwinkle,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        SizedBox(
-                          width: 120,
-                          height: 30,
-                          child: TextField(
-                            controller: _dailyLimitCtrl,
-                            style: const TextStyle(fontSize: 11),
-                            decoration: const InputDecoration(
-                              labelText: 'Daily Limit',
-                              isDense: true,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        SizedBox(
-                          width: 120,
-                          height: 30,
-                          child: TextField(
-                            controller: _weeklyLimitCtrl,
-                            style: const TextStyle(fontSize: 11),
-                            decoration: const InputDecoration(
-                              labelText: 'Weekly Limit',
-                              isDense: true,
-                            ),
-                          ),
-                        ),
-                        const Spacer(),
-                        HudActionButton(
-                          label: 'SAVE LIMITS',
-                          onTap: () {
-                            brain.memoryService.updateEditableLimits(
-                              newDailyLimit: int.tryParse(_dailyLimitCtrl.text),
-                              newWeeklyLimit:
-                                  int.tryParse(_weeklyLimitCtrl.text),
-                            );
-                          },
+                          ],
                         ),
                       ],
                     ),
@@ -374,7 +328,7 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
     );
   }
 
-  Widget _buildServiceCard({
+  Widget _buildSectionCard({
     required UltronHudTheme hud,
     required String title,
     required bool isConnected,
@@ -393,7 +347,7 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
               Text(
                 title,
                 style: TextStyle(
-                  fontSize: 11.5,
+                  fontSize: 11,
                   fontWeight: FontWeight.w800,
                   letterSpacing: 0.9,
                   color: hud.textPrimary,

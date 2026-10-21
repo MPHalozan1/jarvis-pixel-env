@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
 //**********************************************************************
-// PHASE 2 // CENTRAL SHARP TECHNICAL SCI-FI HUD THEME                 *
-// Single source of truth for colors, 0-3px cut corners, typography,   *
-// corner brackets, and scanline overlays.                             *
+// MODERN CYBER-BLUE DARK HUD THEME                                    *
+// Deep sapphire/midnight navy surfaces (#040814) with crisp ice-blue  *
+// (#38BDF8) and electric azure (#0284C7) accents.                     *
 //**********************************************************************
 
 @immutable
@@ -11,8 +11,8 @@ class UltronHudTheme extends ThemeExtension<UltronHudTheme> {
   final Color bgDeep;
   final Color bgPanel;
   final Color bgInput;
-  final Color primaryPeriwinkle;
-  final Color secondaryVioletBloom;
+  final Color primaryPeriwinkle; // Kept field name for compatibility (now Ice Blue)
+  final Color secondaryVioletBloom; // Now Deep Sapphire Blue Bloom
   final Color accentErrorRed;
   final Color accentSuccessGreen;
   final Color accentWarningAmber;
@@ -33,37 +33,37 @@ class UltronHudTheme extends ThemeExtension<UltronHudTheme> {
     required this.textPrimary,
     required this.textMuted,
     required this.borderLine,
-    this.cutRadius = 3.0,
+    this.cutRadius = 4.0,
   });
 
   static const UltronHudTheme dark = UltronHudTheme(
-    bgDeep: Color(0xFF05050F),
-    bgPanel: Color(0xFF0A0A1A),
-    bgInput: Color(0xFF070714),
-    primaryPeriwinkle: Color(0xFFA9A8FF),
-    secondaryVioletBloom: Color(0xFF4B3FFF),
-    accentErrorRed: Color(0xFFFF2A6D),
-    accentSuccessGreen: Color(0xFF00F59B),
-    accentWarningAmber: Color(0xFFFFB800),
-    textPrimary: Color(0xFFE6E6FF),
-    textMuted: Color(0xFF7A7A9E),
-    borderLine: Color(0xFF2D2C5A),
-    cutRadius: 3.0,
+    bgDeep: Color(0xFF040814),
+    bgPanel: Color(0xFF081124),
+    bgInput: Color(0xFF060D1C),
+    primaryPeriwinkle: Color(0xFF38BDF8),
+    secondaryVioletBloom: Color(0xFF0284C7),
+    accentErrorRed: Color(0xFFF43F5E),
+    accentSuccessGreen: Color(0xFF10B981),
+    accentWarningAmber: Color(0xFFF59E0B),
+    textPrimary: Color(0xFFE2F1FF),
+    textMuted: Color(0xFF6482A6),
+    borderLine: Color(0xFF152C4F),
+    cutRadius: 4.0,
   );
 
   static const UltronHudTheme light = UltronHudTheme(
-    bgDeep: Color(0xFFECEDF8),
-    bgPanel: Color(0xFFF7F7FC),
-    bgInput: Color(0xFFFFFFFF),
-    primaryPeriwinkle: Color(0xFF3B32B3),
-    secondaryVioletBloom: Color(0xFF4B3FFF),
-    accentErrorRed: Color(0xFFD91B5C),
-    accentSuccessGreen: Color(0xFF008A57),
-    accentWarningAmber: Color(0xFFB47800),
-    textPrimary: Color(0xFF0D0D26),
-    textMuted: Color(0xFF56567A),
-    borderLine: Color(0xFFB5B4D9),
-    cutRadius: 3.0,
+    bgDeep: Color(0xFFF0F6FC),
+    bgPanel: Color(0xFFFFFFFF),
+    bgInput: Color(0xFFF8FAFC),
+    primaryPeriwinkle: Color(0xFF0284C7),
+    secondaryVioletBloom: Color(0xFF2563EB),
+    accentErrorRed: Color(0xFFE11D48),
+    accentSuccessGreen: Color(0xFF059669),
+    accentWarningAmber: Color(0xFFD97706),
+    textPrimary: Color(0xFF0F172A),
+    textMuted: Color(0xFF475569),
+    borderLine: Color(0xFFCBD5E1),
+    cutRadius: 4.0,
   );
 
   static ThemeData buildThemeData(bool isDark) {
@@ -86,7 +86,7 @@ class UltronHudTheme extends ThemeExtension<UltronHudTheme> {
   }
 
   ShapeBorder chamferShape({Color? borderColor, double width = 1.0}) {
-    return BeveledRectangleBorder(
+    return RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(cutRadius),
       side: BorderSide(color: borderColor ?? borderLine, width: width),
     );
@@ -147,8 +147,7 @@ class UltronHudTheme extends ThemeExtension<UltronHudTheme> {
   }
 }
 
-// Reusable sharp HUD panel with corner tick brackets
-class HudBracketPanel extends StatelessWidget {
+class HudBracketPanel extends StatefulWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
   final Color? borderColor;
@@ -163,22 +162,39 @@ class HudBracketPanel extends StatelessWidget {
   });
 
   @override
+  State<HudBracketPanel> createState() => _HudBracketPanelState();
+}
+
+class _HudBracketPanelState extends State<HudBracketPanel> {
+  bool _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
     final hud =
         Theme.of(context).extension<UltronHudTheme>() ?? UltronHudTheme.dark;
-    final bCol = borderColor ?? hud.borderLine;
+    final baseCol = widget.borderColor ?? hud.borderLine;
+    final activeBorder = _hovered
+        ? Color.lerp(baseCol, hud.primaryPeriwinkle, 0.55)!
+        : baseCol;
 
-    return CustomPaint(
-      foregroundPainter: _CornerBracketPainter(
-        bracketColor: hud.primaryPeriwinkle,
-      ),
-      child: Container(
-        padding: padding,
-        decoration: ShapeDecoration(
-          color: fillColor ?? hud.bgPanel.withValues(alpha: 0.96),
-          shape: hud.chamferShape(borderColor: bCol, width: 1.0),
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: CustomPaint(
+        foregroundPainter: _CornerBracketPainter(
+          bracketColor: hud.primaryPeriwinkle,
+          bracketLength: _hovered ? 9.0 : 6.0,
         ),
-        child: child,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          curve: Curves.easeOutCubic,
+          padding: widget.padding,
+          decoration: ShapeDecoration(
+            color: widget.fillColor ?? hud.bgPanel.withValues(alpha: 0.94),
+            shape: hud.chamferShape(borderColor: activeBorder, width: 1.0),
+          ),
+          child: widget.child,
+        ),
       ),
     );
   }
@@ -186,27 +202,28 @@ class HudBracketPanel extends StatelessWidget {
 
 class _CornerBracketPainter extends CustomPainter {
   final Color bracketColor;
-  const _CornerBracketPainter({required this.bracketColor});
+  final double bracketLength;
+
+  const _CornerBracketPainter({
+    required this.bracketColor,
+    this.bracketLength = 6.0,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = bracketColor.withValues(alpha: 0.85)
-      ..strokeWidth = 1.5
+      ..color = bracketColor.withValues(alpha: 0.80)
+      ..strokeWidth = 1.4
       ..style = PaintingStyle.stroke;
 
-    const len = 7.0;
-    // Top-left
-    canvas.drawLine(Offset.zero, const Offset(len, 0), paint);
-    canvas.drawLine(Offset.zero, const Offset(0, len), paint);
-    // Top-right
+    final len = bracketLength;
+    canvas.drawLine(Offset.zero, Offset(len, 0), paint);
+    canvas.drawLine(Offset.zero, Offset(0, len), paint);
     canvas.drawLine(Offset(size.width, 0), Offset(size.width - len, 0), paint);
     canvas.drawLine(Offset(size.width, 0), Offset(size.width, len), paint);
-    // Bottom-left
     canvas.drawLine(Offset(0, size.height), Offset(len, size.height), paint);
     canvas.drawLine(
         Offset(0, size.height), Offset(0, size.height - len), paint);
-    // Bottom-right
     canvas.drawLine(Offset(size.width, size.height),
         Offset(size.width - len, size.height), paint);
     canvas.drawLine(Offset(size.width, size.height),
@@ -215,11 +232,11 @@ class _CornerBracketPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _CornerBracketPainter oldDelegate) =>
-      oldDelegate.bracketColor != bracketColor;
+      oldDelegate.bracketColor != bracketColor ||
+      oldDelegate.bracketLength != bracketLength;
 }
 
-// Sharp angular button widget
-class HudActionButton extends StatelessWidget {
+class HudActionButton extends StatefulWidget {
   final String label;
   final IconData? icon;
   final VoidCallback? onTap;
@@ -236,37 +253,76 @@ class HudActionButton extends StatelessWidget {
   });
 
   @override
+  State<HudActionButton> createState() => _HudActionButtonState();
+}
+
+class _HudActionButtonState extends State<HudActionButton> {
+  bool _hovered = false;
+  bool _pressed = false;
+
+  @override
   Widget build(BuildContext context) {
     final hud =
         Theme.of(context).extension<UltronHudTheme>() ?? UltronHudTheme.dark;
-    final col = accentColor ??
-        (isPrimaryAccent ? hud.accentErrorRed : hud.primaryPeriwinkle);
+    final col = widget.accentColor ??
+        (widget.isPrimaryAccent ? hud.secondaryVioletBloom : hud.primaryPeriwinkle);
 
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
-        decoration: ShapeDecoration(
-          color: isPrimaryAccent ? col.withValues(alpha: 0.22) : hud.bgInput,
-          shape: hud.chamferShape(borderColor: col, width: 1.0),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (icon != null) ...[
-              Icon(icon, size: 13, color: col),
-              const SizedBox(width: 6),
-            ],
-            Text(
-              label.toUpperCase(),
-              style: TextStyle(
-                fontSize: 10.5,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 1.0,
-                color: isPrimaryAccent ? Colors.white : col,
+    final scale = _pressed ? 0.97 : (_hovered ? 1.02 : 1.0);
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() {
+        _hovered = false;
+        _pressed = false;
+      }),
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapUp: (_) => setState(() => _pressed = false),
+        onTapCancel: () => setState(() => _pressed = false),
+        onTap: widget.onTap,
+        child: AnimatedScale(
+          scale: scale,
+          duration: const Duration(milliseconds: 110),
+          curve: Curves.easeOutCubic,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+            decoration: ShapeDecoration(
+              color: _hovered
+                  ? col.withValues(alpha: 0.25)
+                  : (widget.isPrimaryAccent
+                      ? col.withValues(alpha: 0.18)
+                      : hud.bgInput),
+              shape: hud.chamferShape(
+                borderColor: _hovered ? Colors.white : col.withValues(alpha: 0.85),
+                width: 1.0,
               ),
             ),
-          ],
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (widget.icon != null) ...[
+                  Icon(
+                    widget.icon,
+                    size: 13,
+                    color: _hovered ? Colors.white : col,
+                  ),
+                  const SizedBox(width: 6),
+                ],
+                Text(
+                  widget.label.toUpperCase(),
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.9,
+                    color:
+                        (widget.isPrimaryAccent || _hovered) ? Colors.white : col,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
