@@ -38,3 +38,5 @@ windows/flutter/ephemeral/
 *.key
 *.pem
 secrets.json
+
+ultron_memory/

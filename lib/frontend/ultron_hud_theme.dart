@@ -13,8 +13,65 @@ extension UltronColorAlpha on Color {
 }
 
 //**************
-// Tema vmesnika Ultron HUD s podporo za temni in svetli način *
-// Zasnovana minimalistično s čistimi linijami in subtilnimi poudarki *
+// Barvne prednastavitve za popolno prilagodljivost ULTRON vmesnika *
+//**************
+class UltronAccentPreset {
+  final String name;
+  final Color darkPrimary;
+  final Color darkSecondary;
+  final Color lightPrimary;
+  final Color lightSecondary;
+
+  const UltronAccentPreset({
+    required this.name,
+    required this.darkPrimary,
+    required this.darkSecondary,
+    required this.lightPrimary,
+    required this.lightSecondary,
+  });
+
+  static const List<UltronAccentPreset> presets = [
+    UltronAccentPreset(
+      name: 'Periwinkle Core',
+      darkPrimary: Color(0xFF8EA8FF),
+      darkSecondary: Color(0xFF7B68EE),
+      lightPrimary: Color(0xFF3B5BDB),
+      lightSecondary: Color(0xFF6741D9),
+    ),
+    UltronAccentPreset(
+      name: 'Ultron Crimson',
+      darkPrimary: Color(0xFFFF5470),
+      darkSecondary: Color(0xFFFF8552),
+      lightPrimary: Color(0xFFD90429),
+      lightSecondary: Color(0xFFE8590C),
+    ),
+    UltronAccentPreset(
+      name: 'Cyber Emerald',
+      darkPrimary: Color(0xFF38E8A8),
+      darkSecondary: Color(0xFF20C997),
+      lightPrimary: Color(0xFF099268),
+      lightSecondary: Color(0xFF0CA678),
+    ),
+    UltronAccentPreset(
+      name: 'Quantum Violet',
+      darkPrimary: Color(0xFFB78DFF),
+      darkSecondary: Color(0xFF845EF7),
+      lightPrimary: Color(0xFF6741D9),
+      lightSecondary: Color(0xFF7950F2),
+    ),
+    UltronAccentPreset(
+      name: 'Solar Amber',
+      darkPrimary: Color(0xFFFFB84D),
+      darkSecondary: Color(0xFFFF8748),
+      lightPrimary: Color(0xFFD9480F),
+      lightSecondary: Color(0xFFF08C00),
+    ),
+  ];
+}
+
+//**************
+// Tema vmesnika ULTRON HUD s podporo za temni in svetli način, *
+// prilagodljive barvne poudarke, polmer robov in jakost sija *
 //**************
 @immutable
 class UltronHudTheme extends ThemeExtension<UltronHudTheme> {
@@ -30,6 +87,7 @@ class UltronHudTheme extends ThemeExtension<UltronHudTheme> {
   final Color textMuted;
   final Color borderLine;
   final double cutRadius;
+  final double orbGlowMultiplier;
 
   const UltronHudTheme({
     required this.bgDeep,
@@ -43,44 +101,64 @@ class UltronHudTheme extends ThemeExtension<UltronHudTheme> {
     required this.textPrimary,
     required this.textMuted,
     required this.borderLine,
-    this.cutRadius = 8.0,
+    this.cutRadius = 9.0,
+    this.orbGlowMultiplier = 1.0,
   });
 
   // Temna minimalistična cyber-HUD paleta
   static const UltronHudTheme dark = UltronHudTheme(
-    bgDeep: Color(0xFF070A12),
-    bgPanel: Color(0xFF0E1322),
-    bgInput: Color(0xFF131A2E),
+    bgDeep: Color(0xFF060911),
+    bgPanel: Color(0xFF0D1220),
+    bgInput: Color(0xFF131B30),
     primaryPeriwinkle: Color(0xFF8EA8FF),
     secondaryVioletBloom: Color(0xFF7B68EE),
     accentErrorRed: Color(0xFFFF5C77),
     accentSuccessGreen: Color(0xFF3EE0A1),
     accentWarningAmber: Color(0xFFFFBE55),
     textPrimary: Color(0xFFEDF2FF),
-    textMuted: Color(0xFF8694B8),
-    borderLine: Color(0xFF222D4A),
-    cutRadius: 8.0,
+    textMuted: Color(0xFF8896BA),
+    borderLine: Color(0xFF212C48),
+    cutRadius: 9.0,
+    orbGlowMultiplier: 1.0,
   );
 
-  // Svetla minimalistična paleta z ohranjenim kontrastom
+  // Svetla minimalistična paleta z visokim kontrastom
   static const UltronHudTheme light = UltronHudTheme(
-    bgDeep: Color(0xFFF3F6FC),
+    bgDeep: Color(0xFFF2F5FC),
     bgPanel: Color(0xFFFFFFFF),
-    bgInput: Color(0xFFEAF0FA),
-    primaryPeriwinkle: Color(0xFF4263EB),
+    bgInput: Color(0xFFE8EEF9),
+    primaryPeriwinkle: Color(0xFF3B5BDB),
     secondaryVioletBloom: Color(0xFF6741D9),
     accentErrorRed: Color(0xFFE03131),
     accentSuccessGreen: Color(0xFF0CA678),
     accentWarningAmber: Color(0xFFF08C00),
-    textPrimary: Color(0xFF141B2D),
-    textMuted: Color(0xFF5C6B8A),
-    borderLine: Color(0xFFD5DFEF),
-    cutRadius: 8.0,
+    textPrimary: Color(0xFF12192B),
+    textMuted: Color(0xFF5A6988),
+    borderLine: Color(0xFFD2DDF0),
+    cutRadius: 9.0,
+    orbGlowMultiplier: 1.0,
   );
 
-  // Ustvari celoten ThemeData objekt za MaterialApp
-  static ThemeData buildThemeData({required bool isDark}) {
-    final hud = isDark ? dark : light;
+  // Ustvari celoten ThemeData objekt z izbranim poudarkom in polmerom robov
+  static ThemeData buildThemeData({
+    required bool isDark,
+    int accentIndex = 0,
+    double cutRadius = 9.0,
+    double orbGlowMultiplier = 1.0,
+  }) {
+    final safeIdx =
+        accentIndex.clamp(0, UltronAccentPreset.presets.length - 1);
+    final preset = UltronAccentPreset.presets[safeIdx];
+    final base = isDark ? dark : light;
+
+    final hud = base.copyWith(
+      primaryPeriwinkle: isDark ? preset.darkPrimary : preset.lightPrimary,
+      secondaryVioletBloom:
+          isDark ? preset.darkSecondary : preset.lightSecondary,
+      cutRadius: cutRadius,
+      orbGlowMultiplier: orbGlowMultiplier,
+    );
+
     final brightness = isDark ? Brightness.dark : Brightness.light;
 
     return ThemeData(
@@ -90,7 +168,7 @@ class UltronHudTheme extends ThemeExtension<UltronHudTheme> {
       colorScheme: ColorScheme(
         brightness: brightness,
         primary: hud.primaryPeriwinkle,
-        onPrimary: isDark ? const Color(0xFF070A12) : Colors.white,
+        onPrimary: isDark ? const Color(0xFF060911) : Colors.white,
         secondary: hud.secondaryVioletBloom,
         onSecondary: Colors.white,
         error: hud.accentErrorRed,
@@ -104,7 +182,6 @@ class UltronHudTheme extends ThemeExtension<UltronHudTheme> {
     );
   }
 
-  // Prilagojena oblika s posnetimi robovi za minimalističen HUD videz
   ShapeBorder chamferShape({Color? sideColor, double width = 1.0}) {
     return BeveledRectangleBorder(
       borderRadius: BorderRadius.circular(cutRadius * 0.55),
@@ -129,6 +206,7 @@ class UltronHudTheme extends ThemeExtension<UltronHudTheme> {
     Color? textMuted,
     Color? borderLine,
     double? cutRadius,
+    double? orbGlowMultiplier,
   }) {
     return UltronHudTheme(
       bgDeep: bgDeep ?? this.bgDeep,
@@ -143,6 +221,7 @@ class UltronHudTheme extends ThemeExtension<UltronHudTheme> {
       textMuted: textMuted ?? this.textMuted,
       borderLine: borderLine ?? this.borderLine,
       cutRadius: cutRadius ?? this.cutRadius,
+      orbGlowMultiplier: orbGlowMultiplier ?? this.orbGlowMultiplier,
     );
   }
 
@@ -166,12 +245,15 @@ class UltronHudTheme extends ThemeExtension<UltronHudTheme> {
       textMuted: Color.lerp(textMuted, other.textMuted, t)!,
       borderLine: Color.lerp(borderLine, other.borderLine, t)!,
       cutRadius: lerpDouble(cutRadius, other.cutRadius, t) ?? cutRadius,
+      orbGlowMultiplier:
+          lerpDouble(orbGlowMultiplier, other.orbGlowMultiplier, t) ??
+              orbGlowMultiplier,
     );
   }
 }
 
 //**************
-// Minimalističen HUD panel s subtilnimi kotnimi poudarki in hover animacijo *
+// Minimalističen HUD panel s kotnimi poudarki in gladko hover mikro-animacijo *
 //**************
 class HudBracketPanel extends StatefulWidget {
   final Widget child;
@@ -202,11 +284,11 @@ class _HudBracketPanelState extends State<HudBracketPanel> {
         Theme.of(context).extension<UltronHudTheme>() ?? UltronHudTheme.dark;
     final effectiveBorder = widget.borderColor ??
         (_hovered
-            ? hud.primaryPeriwinkle.alphaPct(0.55)
+            ? hud.primaryPeriwinkle.alphaPct(0.60)
             : hud.borderLine.alphaPct(0.85));
-    final effectiveFill = widget.fillColor ?? hud.bgPanel.alphaPct(0.88);
+    final effectiveFill = widget.fillColor ?? hud.bgPanel.alphaPct(0.90);
 
-    Widget content = AnimatedContainer(
+    final Widget content = AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOutCubic,
       padding: widget.padding,
@@ -216,15 +298,15 @@ class _HudBracketPanelState extends State<HudBracketPanel> {
         border: Border.all(color: effectiveBorder, width: 1.0),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.alphaPct(0.16),
-            blurRadius: 18,
+            color: Colors.black.alphaPct(_hovered ? 0.24 : 0.16),
+            blurRadius: _hovered ? 22 : 18,
             offset: const Offset(0, 6),
           ),
         ],
       ),
       child: CustomPaint(
         painter: _CornerBracketAccentsPainter(
-          color: hud.primaryPeriwinkle.alphaPct(_hovered ? 0.65 : 0.30),
+          color: hud.primaryPeriwinkle.alphaPct(_hovered ? 0.72 : 0.34),
         ),
         child: widget.child,
       ),
@@ -249,18 +331,22 @@ class _CornerBracketAccentsPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
       ..color = color
-      ..strokeWidth = 1.2
+      ..strokeWidth = 1.25
       ..style = PaintingStyle.stroke;
 
-    const double len = 6.0;
+    const double len = 6.5;
     // Zgornji levi kot
     canvas.drawLine(const Offset(0, len), Offset.zero, paint);
     canvas.drawLine(Offset.zero, const Offset(len, 0), paint);
     // Spodnji desni kot
     canvas.drawLine(
-        Offset(size.width - len, size.height), Offset(size.width, size.height), paint);
+        Offset(size.width - len, size.height),
+        Offset(size.width, size.height),
+        paint);
     canvas.drawLine(
-        Offset(size.width, size.height - len), Offset(size.width, size.height), paint);
+        Offset(size.width, size.height - len),
+        Offset(size.width, size.height),
+        paint);
   }
 
   @override
@@ -270,7 +356,7 @@ class _CornerBracketAccentsPainter extends CustomPainter {
 }
 
 //**************
-// Interaktivni gumb z mikro-animacijo ob prehodu z miško in kliku *
+// Interaktivni gumb z odzivno animacijo ob prehodu z miško, siju in kliku *
 //**************
 class HudActionButton extends StatefulWidget {
   final String label;
@@ -308,11 +394,11 @@ class _HudActionButtonState extends State<HudActionButton> {
     final enabled = widget.onTap != null;
 
     final Color bgColor = widget.isPrimaryAccent
-        ? accent.alphaPct(_hovered ? 0.24 : 0.15)
-        : (_hovered ? hud.bgInput.alphaPct(0.95) : hud.bgPanel.alphaPct(0.65));
+        ? accent.alphaPct(_hovered ? 0.25 : 0.15)
+        : (_hovered ? hud.bgInput.alphaPct(0.95) : hud.bgPanel.alphaPct(0.68));
 
     final Color borderColor = widget.isPrimaryAccent || _hovered
-        ? accent.alphaPct(_hovered ? 0.80 : 0.45)
+        ? accent.alphaPct(_hovered ? 0.85 : 0.48)
         : hud.borderLine.alphaPct(0.85);
 
     return MouseRegion(
@@ -328,20 +414,29 @@ class _HudActionButtonState extends State<HudActionButton> {
         onTapCancel: enabled ? () => setState(() => _pressed = false) : null,
         onTap: widget.onTap,
         child: AnimatedScale(
-          scale: _pressed ? 0.96 : (_hovered ? 1.02 : 1.0),
-          duration: const Duration(milliseconds: 130),
+          scale: _pressed ? 0.95 : (_hovered ? 1.025 : 1.0),
+          duration: const Duration(milliseconds: 125),
           curve: Curves.easeOutCubic,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 160),
             curve: Curves.easeOutCubic,
             padding: EdgeInsets.symmetric(
-              horizontal: widget.compact ? 9 : 12,
+              horizontal: widget.compact ? 9.5 : 12,
               vertical: widget.compact ? 6 : 7,
             ),
             decoration: BoxDecoration(
               color: enabled ? bgColor : hud.bgPanel.alphaPct(0.35),
-              borderRadius: BorderRadius.circular(7),
+              borderRadius: BorderRadius.circular(hud.cutRadius * 0.8),
               border: Border.all(color: borderColor, width: 1.0),
+              boxShadow: _hovered && enabled
+                  ? [
+                      BoxShadow(
+                        color: accent.alphaPct(0.14),
+                        blurRadius: 10,
+                        offset: const Offset(0, 2),
+                      ),
+                    ]
+                  : const [],
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,

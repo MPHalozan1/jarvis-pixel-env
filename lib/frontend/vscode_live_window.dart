@@ -4,6 +4,7 @@ import 'ultron_hud_theme.dart';
 
 //**************
 // Vgrajeni kirurški urejevalnik kode z zavihki in neposrednim mostom v VS Code *
+// Samodejno osveži prikaz ob spremembah s strani lokalnega LLM modela *
 //**************
 class VsCodeLiveSurgicalWindow extends StatefulWidget {
   final UltronBrainRouter brain;
@@ -23,6 +24,7 @@ class VsCodeLiveSurgicalWindow extends StatefulWidget {
 class _VsCodeLiveSurgicalWindowState extends State<VsCodeLiveSurgicalWindow> {
   final TextEditingController _editorCtrl = TextEditingController();
   String _boundPath = '';
+  int _boundExternalRev = -1;
 
   @override
   void initState() {
@@ -43,8 +45,10 @@ class _VsCodeLiveSurgicalWindowState extends State<VsCodeLiveSurgicalWindow> {
     final tab = widget.brain.activeTab;
     if (tab == null) {
       _boundPath = '';
+      _boundExternalRev = -1;
       _editorCtrl.text = '';
-    } else if (tab.filePath != _boundPath) {
+    } else if (tab.filePath != _boundPath ||
+        tab.externalSyncRevision != _boundExternalRev) {
       _syncEditorFromTab();
     }
     setState(() {});
@@ -54,6 +58,7 @@ class _VsCodeLiveSurgicalWindowState extends State<VsCodeLiveSurgicalWindow> {
     final tab = widget.brain.activeTab;
     if (tab == null) return;
     _boundPath = tab.filePath;
+    _boundExternalRev = tab.externalSyncRevision;
     _editorCtrl.text = tab.lines.join('\n');
   }
 
@@ -116,9 +121,8 @@ class _VsCodeLiveSurgicalWindowState extends State<VsCodeLiveSurgicalWindow> {
                     icon: Icon(
                       Icons.save_outlined,
                       size: 16,
-                      color: tab.isDirty
-                          ? hud.accentWarningAmber
-                          : hud.textMuted,
+                      color:
+                          tab.isDirty ? hud.accentWarningAmber : hud.textMuted,
                     ),
                     onPressed: () => widget.brain.saveActiveTabContent(),
                   ),
@@ -141,8 +145,8 @@ class _VsCodeLiveSurgicalWindowState extends State<VsCodeLiveSurgicalWindow> {
                 IconButton(
                   tooltip: 'Zapri panel',
                   visualDensity: VisualDensity.compact,
-                  icon: Icon(Icons.close_rounded,
-                      size: 16, color: hud.textMuted),
+                  icon:
+                      Icon(Icons.close_rounded, size: 16, color: hud.textMuted),
                   onPressed: widget.brain.closeVsCodeWindow,
                 ),
               ],
@@ -186,8 +190,7 @@ class _VsCodeLiveSurgicalWindowState extends State<VsCodeLiveSurgicalWindow> {
                               '${t.fileName}${t.isDirty ? " *" : ""}',
                               style: TextStyle(
                                 fontSize: 11,
-                                color:
-                                    active ? hud.textPrimary : hud.textMuted,
+                                color: active ? hud.textPrimary : hud.textMuted,
                               ),
                             ),
                             const SizedBox(width: 6),
@@ -230,8 +233,7 @@ class _VsCodeLiveSurgicalWindowState extends State<VsCodeLiveSurgicalWindow> {
                         ),
                         TextButton(
                           onPressed: () async {
-                            await widget.brain
-                                .fixIssueSurgicallyInPlace(issue);
+                            await widget.brain.fixIssueSurgicallyInPlace(issue);
                             _syncEditorFromTab();
                           },
                           child: const Text('Popravi',
@@ -276,13 +278,13 @@ class _VsCodeLiveSurgicalWindowState extends State<VsCodeLiveSurgicalWindow> {
                         contentPadding: const EdgeInsets.all(12),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(6),
-                          borderSide: BorderSide(
-                              color: hud.borderLine.alphaPct(0.8)),
+                          borderSide:
+                              BorderSide(color: hud.borderLine.alphaPct(0.8)),
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(6),
-                          borderSide: BorderSide(
-                              color: hud.borderLine.alphaPct(0.8)),
+                          borderSide:
+                              BorderSide(color: hud.borderLine.alphaPct(0.8)),
                         ),
                       ),
                     ),

@@ -1,9 +1,10 @@
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'ultron_hud_theme.dart';
 
-// Stanja osrednje nevronske krogle
+// Stanja osrednje in mini nevronske krogle ULTRON
 enum OrbState {
   standby,
   listening,
@@ -47,20 +48,20 @@ class SynapticParticle {
 }
 
 //**************
-// Predpomnilnik 3D geometrije krogle za ničelno obremenitev pomnilnika med izrisom *
-// Zagotavlja tekoče delovanje pri 60 Hz in 240 Hz *
+// Predpomnilnik 3D geometrije krogle z ločenim ultra-lahkim naborom za Mini Chat kroglo *
 //**************
 class OrbGeometryCache {
   static final OrbGeometryCache instance = OrbGeometryCache._internal();
 
   late final List<CircuitStrand> strands;
+  late final List<CircuitStrand> miniStrands;
   late final List<SynapticParticle> synapticParticles;
+  late final List<SynapticParticle> miniParticles;
 
   OrbGeometryCache._internal() {
     final rng = math.Random(42);
     final generatedStrands = <CircuitStrand>[];
 
-    // Ustvarimo dve gnezdeni lupini nevronskih niti
     for (int layer = 0; layer < 2; layer++) {
       final double rScale = layer == 0 ? 1.0 : 0.72;
       final int count = layer == 0 ? 28 : 18;
@@ -94,8 +95,9 @@ class OrbGeometryCache {
       }
     }
     strands = List.unmodifiable(generatedStrands);
+    // Mini nabor (samo 10 niti) za izjemno varčen izris v oblačku klepeta
+    miniStrands = List.unmodifiable(generatedStrands.take(10).toList());
 
-    // Ustvarimo sinaptične delce
     final generatedParticles = <SynapticParticle>[];
     for (int i = 0; i < 44; i++) {
       generatedParticles.add(
@@ -109,6 +111,7 @@ class OrbGeometryCache {
       );
     }
     synapticParticles = List.unmodifiable(generatedParticles);
+    miniParticles = List.unmodifiable(generatedParticles.take(8).toList());
   }
 }
 
@@ -210,8 +213,109 @@ class OrbVisualParams {
 }
 
 //**************
-// Glavni 3D holografski izrisovalnik Ultron nevronske krogle *
-// Optimiziran za minimalno porabo CPE in GPE brez izgube vizualnih učinkov *
+// Varčna mini 3D krogla znotraj oblačka klepeta LLM-ja *
+// Animira se SAMO med razmišljanjem ali izpisovanjem in se samodejno ustavi ob zaključku *
+//**************
+class UltronMiniChatOrb extends StatefulWidget {
+  final bool isAnimating;
+  final OrbState activeState;
+  final double size;
+
+  const UltronMiniChatOrb({
+    super.key,
+    required this.isAnimating,
+    required this.activeState,
+    this.size = 26.0,
+  });
+
+  @override
+  State<UltronMiniChatOrb> createState() => _UltronMiniChatOrbState();
+}
+
+class _UltronMiniChatOrbState extends State<UltronMiniChatOrb>
+    with SingleTickerProviderStateMixin {
+  Ticker? _miniTicker;
+  Duration _lastElapsed = Duration.zero;
+  double _angleY = 0.4;
+  double _ringY = 0.0;
+  double _pulse = 0.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncTicker();
+  }
+
+  @override
+  void didUpdateWidget(covariant UltronMiniChatOrb oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isAnimating != widget.isAnimating) {
+      _syncTicker();
+    }
+  }
+
+  void _syncTicker() {
+    if (widget.isAnimating) {
+      if (_miniTicker != null && _miniTicker!.isActive) return;
+      _lastElapsed = Duration.zero;
+      _miniTicker ??= createTicker((elapsed) {
+        final double dt = _lastElapsed == Duration.zero
+            ? 0.016
+            : ((elapsed - _lastElapsed).inMicroseconds / 1000000.0)
+                .clamp(0.001, 0.05);
+        _lastElapsed = elapsed;
+        setState(() {
+          _angleY += dt * 1.15;
+          _ringY -= dt * 0.85;
+          _pulse += dt;
+        });
+      });
+      _miniTicker!.start();
+    } else {
+      _miniTicker?.stop();
+      _lastElapsed = Duration.zero;
+    }
+  }
+
+  @override
+  void dispose() {
+    _miniTicker?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hud =
+        Theme.of(context).extension<UltronHudTheme>() ?? UltronHudTheme.dark;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final state = widget.isAnimating ? widget.activeState : OrbState.standby;
+
+    return RepaintBoundary(
+      child: SizedBox(
+        width: widget.size,
+        height: widget.size,
+        child: CustomPaint(
+          painter: UltronWireframeOrbPainter(
+            shellAngleY: _angleY,
+            ringAngleY: _ringY,
+            beamDriftPhase: _pulse,
+            pulseClock: _pulse,
+            subtleKeystrokeRipple: 0.0,
+            params: OrbVisualParams.forState(state),
+            isDarkMode: isDark,
+            customPrimaryColor: hud.primaryPeriwinkle,
+            customSecondaryColor: hud.secondaryVioletBloom,
+            glowMultiplier: hud.orbGlowMultiplier,
+            miniMode: true,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+//**************
+// Glavni in Mini 3D holografski izrisovalnik ULTRON nevronske krogle *
 //**************
 class UltronWireframeOrbPainter extends CustomPainter {
   final double shellAngleY;
@@ -221,6 +325,10 @@ class UltronWireframeOrbPainter extends CustomPainter {
   final double subtleKeystrokeRipple;
   final OrbVisualParams params;
   final bool isDarkMode;
+  final Color? customPrimaryColor;
+  final Color? customSecondaryColor;
+  final double glowMultiplier;
+  final bool miniMode;
 
   const UltronWireframeOrbPainter({
     required this.shellAngleY,
@@ -230,72 +338,82 @@ class UltronWireframeOrbPainter extends CustomPainter {
     required this.subtleKeystrokeRipple,
     required this.params,
     this.isDarkMode = true,
+    this.customPrimaryColor,
+    this.customSecondaryColor,
+    this.glowMultiplier = 1.0,
+    this.miniMode = false,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     final Offset center = Offset(size.width * 0.5, size.height * 0.5);
-    final double baseRadius = math.min(size.width, size.height) * 0.34;
+    final double baseRadius =
+        math.min(size.width, size.height) * (miniMode ? 0.39 : 0.34);
     final double breath =
         1.0 + math.sin(pulseClock * 2.1) * params.outwardPulseStrength * 0.45;
     final double rippleScale = 1.0 + subtleKeystrokeRipple * 0.065;
     final double orbRadius = baseRadius * breath * rippleScale;
 
-    final Color baseBlue = isDarkMode
-        ? const Color(0xFF8EA8FF)
-        : const Color(0xFF3B5BDB);
-    final Color baseViolet = isDarkMode
-        ? const Color(0xFF7B68EE)
-        : const Color(0xFF6741D9);
-    final Color errorRed = const Color(0xFFFF5C77);
+    final Color basePrimary = customPrimaryColor ??
+        (isDarkMode ? const Color(0xFF8EA8FF) : const Color(0xFF3B5BDB));
+    final Color baseSecondary = customSecondaryColor ??
+        (isDarkMode ? const Color(0xFF7B68EE) : const Color(0xFF6741D9));
+    const Color errorRed = Color(0xFFFF5C77);
 
     final Color primaryTone =
-        Color.lerp(baseBlue, errorRed, params.errorTintMix)!;
-    final Color secondaryTone =
-        Color.lerp(baseViolet, const Color(0xFFFF8787), params.errorTintMix)!;
+        Color.lerp(basePrimary, errorRed, params.errorTintMix)!;
+    final Color secondaryTone = Color.lerp(
+        baseSecondary, const Color(0xFFFF8787), params.errorTintMix)!;
 
-    // 1. Mehak atmosferski sij v ozadju jedra
-    final double glowR = orbRadius * 1.55 * params.glowScale;
+    final double effectiveGlow = glowMultiplier.clamp(0.4, 1.8);
+
+    // 1. Atmosferski sij
+    final double glowR =
+        orbRadius * (miniMode ? 1.25 : 1.55) * params.glowScale;
     final Paint auraPaint = Paint()
       ..shader = RadialGradient(
         colors: [
           primaryTone.alphaPct(
-              (isDarkMode ? 0.24 : 0.16) * params.coreBrightness),
+              ((isDarkMode ? 0.24 : 0.16) * params.coreBrightness * effectiveGlow)
+                  .clamp(0.0, 0.9)),
           secondaryTone.alphaPct(
-              (isDarkMode ? 0.10 : 0.06) * params.coreBrightness),
+              ((isDarkMode ? 0.10 : 0.06) * params.coreBrightness * effectiveGlow)
+                  .clamp(0.0, 0.7)),
           primaryTone.alphaPct(0.0),
         ],
         stops: const [0.0, 0.48, 1.0],
       ).createShader(Rect.fromCircle(center: center, radius: glowR));
     canvas.drawCircle(center, glowR, auraPaint);
 
-    // 2. Diagonalni energijski žarek skozi jedro
-    final double beamAngle =
-        -0.58 + math.sin(beamDriftPhase * 0.7) * 0.08;
-    final Offset beamOffset = Offset(
-      math.cos(beamAngle) * orbRadius * 1.32,
-      math.sin(beamAngle) * orbRadius * 1.32,
-    );
-    final Paint beamPaint = Paint()
-      ..strokeWidth = 2.0 + subtleKeystrokeRipple * 1.6
-      ..strokeCap = StrokeCap.round
-      ..shader = LinearGradient(
-        colors: [
-          primaryTone.alphaPct(0.0),
-          secondaryTone.alphaPct(0.45 * params.beamBrightness),
-          Colors.white.alphaPct(
-              (isDarkMode ? 0.72 : 0.45) * params.beamBrightness),
-          secondaryTone.alphaPct(0.45 * params.beamBrightness),
-          primaryTone.alphaPct(0.0),
-        ],
-        stops: const [0.0, 0.30, 0.50, 0.70, 1.0],
-      ).createShader(
-        Rect.fromPoints(center - beamOffset, center + beamOffset),
+    // 2. Diagonalni energijski žarek (preskočimo v mini načinu za čistost)
+    if (!miniMode) {
+      final double beamAngle = -0.58 + math.sin(beamDriftPhase * 0.7) * 0.08;
+      final Offset beamOffset = Offset(
+        math.cos(beamAngle) * orbRadius * 1.32,
+        math.sin(beamAngle) * orbRadius * 1.32,
       );
-    canvas.drawLine(center - beamOffset, center + beamOffset, beamPaint);
+      final Paint beamPaint = Paint()
+        ..strokeWidth = 2.0 + subtleKeystrokeRipple * 1.6
+        ..strokeCap = StrokeCap.round
+        ..shader = LinearGradient(
+          colors: [
+            primaryTone.alphaPct(0.0),
+            secondaryTone.alphaPct(0.45 * params.beamBrightness),
+            Colors.white.alphaPct(
+                (isDarkMode ? 0.72 : 0.45) * params.beamBrightness),
+            secondaryTone.alphaPct(0.45 * params.beamBrightness),
+            primaryTone.alphaPct(0.0),
+          ],
+          stops: const [0.0, 0.30, 0.50, 0.70, 1.0],
+        ).createShader(
+          Rect.fromPoints(center - beamOffset, center + beamOffset),
+        );
+      canvas.drawLine(center - beamOffset, center + beamOffset, beamPaint);
+    }
 
-    // 3. 3D gnezdena mreža nevronskih niti
+    // 3. 3D mreža nevronskih niti (polna ali varčna mini mreža)
     final cache = OrbGeometryCache.instance;
+    final activeStrands = miniMode ? cache.miniStrands : cache.strands;
     final double cosY = math.cos(shellAngleY);
     final double sinY = math.sin(shellAngleY);
     const double tiltX = 0.28;
@@ -308,7 +426,7 @@ class UltronWireframeOrbPainter extends CustomPainter {
 
     final Path strandPath = Path();
 
-    for (final strand in cache.strands) {
+    for (final strand in activeStrands) {
       strandPath.reset();
       double avgZ = 0.0;
       final double layerSpin = strand.layer == 0 ? 1.0 : -1.35;
@@ -319,15 +437,10 @@ class UltronWireframeOrbPainter extends CustomPainter {
 
       for (int i = 0; i < strand.points.length; i++) {
         final pt = strand.points[i];
-        final double x0 = pt[0];
-        final double y0 = pt[1];
-        final double z0 = pt[2];
-
-        // Rotacija okoli osi Y in nagib okoli osi X
-        final double x1 = x0 * localCosY - z0 * localSinY;
-        final double z1 = x0 * localSinY + z0 * localCosY;
-        final double y2 = y0 * cosX - z1 * sinX;
-        final double z2 = y0 * sinX + z1 * cosX;
+        final double x1 = pt[0] * localCosY - pt[2] * localSinY;
+        final double z1 = pt[0] * localSinY + pt[2] * localCosY;
+        final double y2 = pt[1] * cosX - z1 * sinX;
+        final double z2 = pt[1] * sinX + z1 * cosX;
 
         avgZ += z2;
         final double perspective = 2.6 / (2.6 - z2 * 0.55);
@@ -343,30 +456,30 @@ class UltronWireframeOrbPainter extends CustomPainter {
 
       avgZ /= strand.points.length;
       final double depthFactor = ((avgZ + 1.0) * 0.5).clamp(0.12, 1.0);
-      final double shimmer = 0.72 +
-          0.28 * math.sin(pulseClock * 2.8 + strand.phaseOffset);
+      final double shimmer =
+          0.72 + 0.28 * math.sin(pulseClock * 2.8 + strand.phaseOffset);
 
       final Color lineColor = strand.layer == 0 ? primaryTone : secondaryTone;
       final double opacity =
-          (depthFactor * shimmer * (isDarkMode ? 0.62 : 0.52) +
-                  subtleKeystrokeRipple * 0.18)
-              .clamp(0.06, 0.92);
+          (depthFactor * shimmer * (isDarkMode ? 0.68 : 0.56) * effectiveGlow)
+              .clamp(0.10, 0.95);
 
       strandPaint
         ..color = lineColor.alphaPct(opacity)
-        ..strokeWidth = (strand.layer == 0 ? 1.25 : 0.95) *
-            (0.75 + depthFactor * 0.45);
+        ..strokeWidth = miniMode
+            ? 1.0
+            : (strand.layer == 0 ? 1.25 : 0.95) * (0.75 + depthFactor * 0.45);
 
       canvas.drawPath(strandPath, strandPaint);
     }
 
-    // 4. Nagnjen ekvatorialni orbitalni obroč
+    // 4. Orbitalni obroč
     final Path ringPath = Path();
-    const int ringSteps = 64;
+    final int ringSteps = miniMode ? 24 : 64;
     const double ringTilt = 0.52;
     final double cosRT = math.cos(ringTilt);
     final double sinRT = math.sin(ringTilt);
-    final double ringR = orbRadius * (1.22 + subtleKeystrokeRipple * 0.04);
+    final double ringR = orbRadius * 1.18;
 
     for (int i = 0; i <= ringSteps; i++) {
       final double t = (i / ringSteps) * math.pi * 2 + ringAngleY;
@@ -385,15 +498,19 @@ class UltronWireframeOrbPainter extends CustomPainter {
       }
     }
 
-    final Paint ringPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.15
-      ..color = primaryTone.alphaPct(isDarkMode ? 0.42 : 0.35);
-    canvas.drawPath(ringPath, ringPaint);
+    canvas.drawPath(
+      ringPath,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = miniMode ? 0.85 : 1.15
+        ..color = primaryTone.alphaPct(isDarkMode ? 0.45 : 0.36),
+    );
 
     // 5. Sinaptični delci
+    final activeParticles =
+        miniMode ? cache.miniParticles : cache.synapticParticles;
     final Paint particlePaint = Paint()..style = PaintingStyle.fill;
-    for (final p in cache.synapticParticles) {
+    for (final p in activeParticles) {
       final double angle = p.theta + shellAngleY * p.speedFactor;
       final double sinPhi = math.sin(p.phi);
       final double px3 = p.radiusFactor * sinPhi * math.cos(angle);
@@ -401,55 +518,40 @@ class UltronWireframeOrbPainter extends CustomPainter {
       final double pz3 = p.radiusFactor * sinPhi * math.sin(angle);
 
       final double depth = ((pz3 + 1.2) / 2.4).clamp(0.15, 1.0);
-      final double sx = center.dx + px3 * orbRadius;
-      final double sy = center.dy + py3 * orbRadius;
-
       particlePaint.color = primaryTone.alphaPct(
-        (depth * 0.65 * params.coreBrightness + subtleKeystrokeRipple * 0.2)
-            .clamp(0.08, 0.95),
+        (depth * 0.65 * params.coreBrightness).clamp(0.10, 0.95),
       );
       canvas.drawCircle(
-        Offset(sx, sy),
-        p.size * (0.7 + depth * 0.5),
+        Offset(center.dx + px3 * orbRadius, center.dy + py3 * orbRadius),
+        (miniMode ? 0.8 : p.size) * (0.7 + depth * 0.5),
         particlePaint,
       );
     }
 
-    // 6. Svetlo jedro in odzivni val ob tipkanju
+    // 6. Svetlo jedro
+    final double coreR = orbRadius * (miniMode ? 0.36 : 0.28);
     final Paint corePaint = Paint()
       ..shader = RadialGradient(
         colors: [
           Colors.white.alphaPct(
-              (isDarkMode ? 0.85 : 0.70) * params.coreBrightness),
-          primaryTone.alphaPct(0.42 * params.coreBrightness),
+              (isDarkMode ? 0.88 : 0.72) * params.coreBrightness),
+          primaryTone.alphaPct(0.45 * params.coreBrightness),
           primaryTone.alphaPct(0.0),
         ],
-      ).createShader(Rect.fromCircle(center: center, radius: orbRadius * 0.28));
-    canvas.drawCircle(center, orbRadius * 0.28, corePaint);
-
-    if (subtleKeystrokeRipple > 0.01) {
-      final Paint ripplePaint = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.3
-        ..color =
-            primaryTone.alphaPct((subtleKeystrokeRipple * 0.55).clamp(0.0, 0.8));
-      canvas.drawCircle(
-        center,
-        orbRadius * (0.85 + (1.0 - subtleKeystrokeRipple) * 0.38),
-        ripplePaint,
-      );
-    }
+      ).createShader(Rect.fromCircle(center: center, radius: coreR));
+    canvas.drawCircle(center, coreR, corePaint);
   }
 
   @override
   bool shouldRepaint(covariant UltronWireframeOrbPainter oldDelegate) {
     return oldDelegate.shellAngleY != shellAngleY ||
         oldDelegate.ringAngleY != ringAngleY ||
-        oldDelegate.beamDriftPhase != beamDriftPhase ||
         oldDelegate.pulseClock != pulseClock ||
         oldDelegate.subtleKeystrokeRipple != subtleKeystrokeRipple ||
         oldDelegate.isDarkMode != isDarkMode ||
-        oldDelegate.params.coreBrightness != params.coreBrightness ||
-        oldDelegate.params.errorTintMix != params.errorTintMix;
+        oldDelegate.miniMode != miniMode ||
+        oldDelegate.customPrimaryColor != customPrimaryColor ||
+        oldDelegate.glowMultiplier != glowMultiplier ||
+        oldDelegate.params.coreBrightness != params.coreBrightness;
   }
 }

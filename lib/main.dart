@@ -4,22 +4,27 @@ import 'frontend/ultron_dashboard_ui.dart';
 import 'frontend/ultron_hud_theme.dart';
 
 //**************
-// Vstopna točka aplikacije Ultron Neural Core *
-// Skrbi za inicializacijo jedra in preklop temnega ter svetlega načina *
+// Vstopna točka aplikacije ULTRON *
+// Skrbi za inicializacijo jedra in dinamično prilagajanje temnega/svetlega videza *
 //**************
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const UltronNeuralApp());
+  runApp(const UltronApp());
 }
 
-class UltronNeuralApp extends StatefulWidget {
+// Ohranimo vzdevek za popolno združljivost z obstoječimi testi
+class UltronNeuralApp extends UltronApp {
   const UltronNeuralApp({super.key});
+}
+
+class UltronApp extends StatefulWidget {
+  const UltronApp({super.key});
 
   @override
-  State<UltronNeuralApp> createState() => _UltronNeuralAppState();
+  State<UltronApp> createState() => _UltronAppState();
 }
 
-class _UltronNeuralAppState extends State<UltronNeuralApp> {
+class _UltronAppState extends State<UltronApp> {
   late final UltronBrainRouter _brain;
   bool _isDarkMode = true;
 
@@ -36,7 +41,7 @@ class _UltronNeuralAppState extends State<UltronNeuralApp> {
     super.dispose();
   }
 
-  // Preklopi med temno in svetlo HUD temo z gladko animacijo
+  // Preklopi med temno in svetlo ULTRON temo z gladko animacijo
   void _toggleTheme() {
     setState(() {
       _isDarkMode = !_isDarkMode;
@@ -45,19 +50,29 @@ class _UltronNeuralAppState extends State<UltronNeuralApp> {
 
   @override
   Widget build(BuildContext context) {
-    final themeData = UltronHudTheme.buildThemeData(isDark: _isDarkMode);
+    return ListenableBuilder(
+      listenable: _brain,
+      builder: (context, _) {
+        final themeData = UltronHudTheme.buildThemeData(
+          isDark: _isDarkMode,
+          accentIndex: _brain.accentPresetIndex,
+          cutRadius: _brain.customCutRadius,
+          orbGlowMultiplier: _brain.orbGlowMultiplier,
+        );
 
-    return MaterialApp(
-      title: 'Ultron Neural Core',
-      debugShowCheckedModeBanner: false,
-      theme: themeData,
-      themeAnimationDuration: const Duration(milliseconds: 280),
-      themeAnimationCurve: Curves.easeOutCubic,
-      home: UltronDashboardScreen(
-        brain: _brain,
-        isDarkMode: _isDarkMode,
-        onToggleTheme: _toggleTheme,
-      ),
+        return MaterialApp(
+          title: 'ULTRON',
+          debugShowCheckedModeBanner: false,
+          theme: themeData,
+          themeAnimationDuration: const Duration(milliseconds: 280),
+          themeAnimationCurve: Curves.easeOutCubic,
+          home: UltronDashboardScreen(
+            brain: _brain,
+            isDarkMode: _isDarkMode,
+            onToggleTheme: _toggleTheme,
+          ),
+        );
+      },
     );
   }
 }

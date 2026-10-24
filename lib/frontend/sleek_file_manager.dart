@@ -5,8 +5,7 @@ import 'ultron_hud_theme.dart';
 
 //**************
 // Minimalističen razširljiv File Manager za brskanje po celotnem računalniku *
-// Zazna vse diske (C:\, D:\ itd.), hitre mape, omogoča iskanje, pripenjanje v klepet *
-// ter neposredno sprožanje učenja (Learn) nad poljubno mapo *
+// Združljiv s privzetim načinom brez aktivnega projekta ter ustvarjanjem datotek/map *
 //**************
 class FuturisticHoverFileStack extends StatefulWidget {
   final UltronBrainRouter brain;
@@ -31,28 +30,46 @@ class _FuturisticHoverFileStackState extends State<FuturisticHoverFileStack> {
   bool _showHidden = false;
   bool _editingPath = false;
 
+  bool? _createFolderMode;
+  int _lastSeenRevision = -1;
+
   String _searchQuery = '';
   List<FileSystemEntity> _entries = [];
   String? _accessError;
 
   final TextEditingController _pathCtrl = TextEditingController();
   final TextEditingController _filterCtrl = TextEditingController();
+  final TextEditingController _newItemCtrl = TextEditingController();
 
   @override
   void initState() {
     super.initState();
+    _lastSeenRevision = widget.brain.workspaceRevision;
     _pathCtrl.text = widget.brain.currentBrowserDirectory;
-    _loadDirectory(widget.brain.currentBrowserDirectory);
+    _loadDirectory(widget.brain.currentBrowserDirectory, notifyBrain: false);
+    widget.brain.addListener(_onBrainWorkspaceChanged);
   }
 
   @override
   void dispose() {
+    widget.brain.removeListener(_onBrainWorkspaceChanged);
     _pathCtrl.dispose();
     _filterCtrl.dispose();
+    _newItemCtrl.dispose();
     super.dispose();
   }
 
-  void _loadDirectory(String path) {
+  void _onBrainWorkspaceChanged() {
+    if (!mounted) return;
+    if (widget.brain.workspaceRevision != _lastSeenRevision ||
+        _pathCtrl.text != widget.brain.currentBrowserDirectory) {
+      _lastSeenRevision = widget.brain.workspaceRevision;
+      _loadDirectory(widget.brain.currentBrowserDirectory, notifyBrain: false);
+    }
+  }
+
+  void _loadDirectory(String path, {bool notifyBrain = true}) {
+    if (path.trim().isEmpty) return;
     final targetDir = Directory(path);
     if (!targetDir.existsSync()) {
       setState(() {
@@ -72,7 +89,9 @@ class _FuturisticHoverFileStackState extends State<FuturisticHoverFileStack> {
             .compareTo(_entityName(b.path).toLowerCase());
       });
 
-      widget.brain.setCurrentBrowserDirectory(targetDir.path);
+      if (notifyBrain) {
+        widget.brain.setCurrentBrowserDirectory(targetDir.path);
+      }
       _pathCtrl.text = targetDir.path;
 
       if (mounted) {
@@ -81,7 +100,7 @@ class _FuturisticHoverFileStackState extends State<FuturisticHoverFileStack> {
           _accessError = null;
         });
       }
-    } catch (e) {
+    } catch (_) {
       if (mounted) {
         setState(() {
           _entries = [];
@@ -99,6 +118,31 @@ class _FuturisticHoverFileStackState extends State<FuturisticHoverFileStack> {
     }
   }
 
+  Future<void> _submitQuickCreate() async {
+    final name = _newItemCtrl.text.trim();
+    final isDir = _createFolderMode;
+    if (name.isEmpty || isDir == null) return;
+
+    bool ok;
+    if (isDir) {
+      ok = await widget.brain.createNewFolderInDirectory(
+        baseDirectory: widget.brain.currentBrowserDirectory,
+        relativeName: name,
+      );
+      if (ok) widget.onStatusToast?.call('Ustvarjena mapa: $name');
+    } else {
+      ok = await widget.brain.createNewFileInDirectory(
+        baseDirectory: widget.brain.currentBrowserDirectory,
+        relativeName: name,
+      );
+      if (ok) widget.onStatusToast?.call('Ustvarjena datoteka: $name');
+    }
+
+    _newItemCtrl.clear();
+    setState(() => _createFolderMode = null);
+    _loadDirectory(widget.brain.currentBrowserDirectory, notifyBrain: false);
+  }
+
   Map<String, String> _quickFolders() {
     final map = <String, String>{};
     final home = Platform.environment['USERPROFILE'] ??
@@ -113,7 +157,9 @@ class _FuturisticHoverFileStackState extends State<FuturisticHoverFileStack> {
       if (Directory(docs).existsSync()) map['Dokumenti'] = docs;
       if (Directory(downloads).existsSync()) map['Prenosi'] = downloads;
     }
-    map['Projekt'] = Directory.current.path;
+    if (widget.brain.hasActiveProject) {
+      map['Projekt'] = widget.brain.activeProjectPath;
+    }
     return map;
   }
 
@@ -143,7 +189,9 @@ class _FuturisticHoverFileStackState extends State<FuturisticHoverFileStack> {
         lower.endsWith('.webp')) {
       return Icons.image_outlined;
     }
-    if (lower.endsWith('.zip') || lower.endsWith('.rar') || lower.endsWith('.7z')) {
+    if (lower.endsWith('.zip') ||
+        lower.endsWith('.rar') ||
+        lower.endsWith('.7z')) {
       return Icons.archive_outlined;
     }
     if (lower.endsWith('.dart') ||
@@ -165,7 +213,10 @@ class _FuturisticHoverFileStackState extends State<FuturisticHoverFileStack> {
   Widget build(BuildContext context) {
     final hud =
         Theme.of(context).extension<UltronHudTheme>() ?? UltronHudTheme.dark;
-    final bool open = _isExpanded || _isPinned;
+    final bool open =
+        _isExpanded || _isPinned || _createFolderMode != null;
+    final bool isCurrentActiveProject = widget.brain.hasActiveProject &&
+        widget.brain.currentBrowserDirectory == widget.brain.activeProjectPath;
 
     final filtered = _entries.where((e) {
       final name = _entityName(e.path);
@@ -180,21 +231,21 @@ class _FuturisticHoverFileStackState extends State<FuturisticHoverFileStack> {
     return MouseRegion(
       onEnter: (_) => setState(() => _isExpanded = true),
       onExit: (_) {
-        if (!_isPinned && !_editingPath) {
+        if (!_isPinned && !_editingPath && _createFolderMode == null) {
           setState(() => _isExpanded = false);
         }
       },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 240),
         curve: Curves.easeOutCubic,
-        width: open ? 325 : 178,
-        height: open ? 510 : 42,
+        width: open ? 348 : 186,
+        height: open ? 545 : 42,
         decoration: BoxDecoration(
-          color: hud.bgPanel.alphaPct(open ? 0.94 : 0.80),
+          color: hud.bgPanel.alphaPct(open ? 0.95 : 0.82),
           borderRadius: BorderRadius.circular(hud.cutRadius),
           border: Border.all(
             color: open
-                ? hud.primaryPeriwinkle.alphaPct(0.45)
+                ? hud.primaryPeriwinkle.alphaPct(0.48)
                 : hud.borderLine.alphaPct(0.85),
             width: 1.0,
           ),
@@ -210,18 +261,19 @@ class _FuturisticHoverFileStackState extends State<FuturisticHoverFileStack> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Zgornja glava brskalnika
             Container(
               height: 40,
-              padding: const EdgeInsets.symmetric(horizontal: 11),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
               child: Row(
                 children: [
                   Icon(
                     open ? Icons.folder_open : Icons.folder_outlined,
                     size: 16,
-                    color: hud.primaryPeriwinkle,
+                    color: isCurrentActiveProject && open
+                        ? hud.accentSuccessGreen
+                        : hud.primaryPeriwinkle,
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 7),
                   Expanded(
                     child: Text(
                       open
@@ -238,11 +290,79 @@ class _FuturisticHoverFileStackState extends State<FuturisticHoverFileStack> {
                   ),
                   if (open) ...[
                     IconButton(
+                      tooltip: isCurrentActiveProject
+                          ? 'Trenutna mapa je aktivni projekt (klikni za odklop)'
+                          : 'Nastavi to mapo kot aktivni projekt za LLM',
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints:
+                          const BoxConstraints(minWidth: 25, minHeight: 25),
+                      icon: Icon(
+                        isCurrentActiveProject
+                            ? Icons.folder_special_rounded
+                            : Icons.my_location_rounded,
+                        size: 15,
+                        color: isCurrentActiveProject
+                            ? hud.accentSuccessGreen
+                            : hud.primaryPeriwinkle,
+                      ),
+                      onPressed: () async {
+                        if (isCurrentActiveProject) {
+                          widget.brain.clearActiveProject();
+                          widget.onStatusToast
+                              ?.call('Projekt odklopljen (Hitri način)');
+                        } else {
+                          await widget.brain.setActiveProjectFolder(
+                            widget.brain.currentBrowserDirectory,
+                          );
+                          widget.onStatusToast?.call(
+                            'Aktivni projekt: ${widget.brain.activeProjectName} (${widget.brain.workspaceService.indexedFiles.length} datotek)',
+                          );
+                        }
+                      },
+                    ),
+                    IconButton(
+                      tooltip: 'Nova datoteka v tej mapi',
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints:
+                          const BoxConstraints(minWidth: 25, minHeight: 25),
+                      icon: Icon(
+                        Icons.note_add_outlined,
+                        size: 14.5,
+                        color: _createFolderMode == false
+                            ? hud.primaryPeriwinkle
+                            : hud.textMuted,
+                      ),
+                      onPressed: () => setState(() {
+                        _createFolderMode =
+                            _createFolderMode == false ? null : false;
+                      }),
+                    ),
+                    IconButton(
+                      tooltip: 'Nova mapa v tej mapi',
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints:
+                          const BoxConstraints(minWidth: 25, minHeight: 25),
+                      icon: Icon(
+                        Icons.create_new_folder_outlined,
+                        size: 14.5,
+                        color: _createFolderMode == true
+                            ? hud.primaryPeriwinkle
+                            : hud.textMuted,
+                      ),
+                      onPressed: () => setState(() {
+                        _createFolderMode =
+                            _createFolderMode == true ? null : true;
+                      }),
+                    ),
+                    IconButton(
                       tooltip: 'Nauči se iz trenutne mape (Learn)',
                       visualDensity: VisualDensity.compact,
                       padding: EdgeInsets.zero,
                       constraints:
-                          const BoxConstraints(minWidth: 26, minHeight: 26),
+                          const BoxConstraints(minWidth: 25, minHeight: 25),
                       icon: Icon(
                         Icons.psychology_alt,
                         size: 15,
@@ -268,7 +388,7 @@ class _FuturisticHoverFileStackState extends State<FuturisticHoverFileStack> {
                       visualDensity: VisualDensity.compact,
                       padding: EdgeInsets.zero,
                       constraints:
-                          const BoxConstraints(minWidth: 26, minHeight: 26),
+                          const BoxConstraints(minWidth: 24, minHeight: 24),
                       icon: Icon(
                         _showHidden
                             ? Icons.visibility_outlined
@@ -284,7 +404,7 @@ class _FuturisticHoverFileStackState extends State<FuturisticHoverFileStack> {
                       visualDensity: VisualDensity.compact,
                       padding: EdgeInsets.zero,
                       constraints:
-                          const BoxConstraints(minWidth: 26, minHeight: 26),
+                          const BoxConstraints(minWidth: 24, minHeight: 24),
                       icon: Icon(
                         _isPinned ? Icons.push_pin : Icons.push_pin_outlined,
                         size: 14,
@@ -297,11 +417,88 @@ class _FuturisticHoverFileStackState extends State<FuturisticHoverFileStack> {
                 ],
               ),
             ),
-
             if (open) ...[
               Divider(height: 1, color: hud.borderLine.alphaPct(0.75)),
-
-              // Vrstica z vsemi diski (C:\, D:\ ...) in hitrimi mapami
+              AnimatedSize(
+                duration: const Duration(milliseconds: 170),
+                curve: Curves.easeOutCubic,
+                child: _createFolderMode == null
+                    ? const SizedBox.shrink()
+                    : Container(
+                        padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+                        color: hud.primaryPeriwinkle.alphaPct(0.08),
+                        child: Row(
+                          children: [
+                            Icon(
+                              _createFolderMode!
+                                  ? Icons.create_new_folder_outlined
+                                  : Icons.note_add_outlined,
+                              size: 14,
+                              color: hud.primaryPeriwinkle,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: SizedBox(
+                                height: 27,
+                                child: TextField(
+                                  controller: _newItemCtrl,
+                                  autofocus: true,
+                                  onSubmitted: (_) => _submitQuickCreate(),
+                                  style: TextStyle(
+                                      fontSize: 11.5, color: hud.textPrimary),
+                                  decoration: InputDecoration(
+                                    isDense: true,
+                                    hintText: _createFolderMode!
+                                        ? 'Ime nove mape (npr. lib/utils)...'
+                                        : 'Ime datoteke (npr. helper.dart)...',
+                                    hintStyle: TextStyle(
+                                        fontSize: 11, color: hud.textMuted),
+                                    filled: true,
+                                    fillColor: hud.bgInput.alphaPct(0.88),
+                                    contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 6),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(5),
+                                      borderSide: BorderSide.none,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 5),
+                            InkWell(
+                              borderRadius: BorderRadius.circular(5),
+                              onTap: _submitQuickCreate,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 7, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: hud.primaryPeriwinkle.alphaPct(0.22),
+                                  borderRadius: BorderRadius.circular(5),
+                                ),
+                                child: Text(
+                                  'Ustvari',
+                                  style: TextStyle(
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: hud.textPrimary,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 3),
+                            GestureDetector(
+                              onTap: () => setState(() {
+                                _createFolderMode = null;
+                                _newItemCtrl.clear();
+                              }),
+                              child: Icon(Icons.close_rounded,
+                                  size: 14, color: hud.textMuted),
+                            ),
+                          ],
+                        ),
+                      ),
+              ),
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 padding:
@@ -333,8 +530,6 @@ class _FuturisticHoverFileStackState extends State<FuturisticHoverFileStack> {
                   ],
                 ),
               ),
-
-              // Vrstica za pot in skok nivo višje
               Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -373,9 +568,9 @@ class _FuturisticHoverFileStackState extends State<FuturisticHoverFileStack> {
                                 horizontal: 8, vertical: 6),
                             filled: true,
                             fillColor: hud.bgInput.alphaPct(0.8),
-                            hintText: 'Vpiši pot (npr. D:\\)...',
-                            hintStyle: TextStyle(
-                                fontSize: 11, color: hud.textMuted),
+                            hintText: 'Vpiši pot...',
+                            hintStyle:
+                                TextStyle(fontSize: 11, color: hud.textMuted),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(5),
                               borderSide: BorderSide.none,
@@ -403,8 +598,6 @@ class _FuturisticHoverFileStackState extends State<FuturisticHoverFileStack> {
                   ],
                 ),
               ),
-
-              // Iskalni filter v trenutni mapi
               Padding(
                 padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
                 child: SizedBox(
@@ -430,8 +623,7 @@ class _FuturisticHoverFileStackState extends State<FuturisticHoverFileStack> {
                             )
                           : null,
                       hintText: 'Filtriraj v tej mapi...',
-                      hintStyle:
-                          TextStyle(fontSize: 11, color: hud.textMuted),
+                      hintStyle: TextStyle(fontSize: 11, color: hud.textMuted),
                       filled: true,
                       fillColor: hud.bgInput.alphaPct(0.55),
                       contentPadding: const EdgeInsets.symmetric(
@@ -444,10 +636,7 @@ class _FuturisticHoverFileStackState extends State<FuturisticHoverFileStack> {
                   ),
                 ),
               ),
-
               Divider(height: 1, color: hud.borderLine.alphaPct(0.65)),
-
-              // Seznam map in datotek
               Expanded(
                 child: _accessError != null
                     ? Center(
@@ -477,11 +666,15 @@ class _FuturisticHoverFileStackState extends State<FuturisticHoverFileStack> {
                               final entity = filtered[idx];
                               final isDir = entity is Directory;
                               final name = _entityName(entity.path);
+                              final isActiveProjRow = isDir &&
+                                  widget.brain.hasActiveProject &&
+                                  entity.path == widget.brain.activeProjectPath;
 
                               return _FileEntryTile(
                                 name: name,
                                 icon: _iconForFile(name, isDir),
                                 isDirectory: isDir,
+                                isActiveProject: isActiveProjRow,
                                 onPrimaryTap: () {
                                   if (isDir) {
                                     _filterCtrl.clear();
@@ -492,16 +685,32 @@ class _FuturisticHoverFileStackState extends State<FuturisticHoverFileStack> {
                                         .openFileInEditorTab(entity.path);
                                   }
                                 },
-                                onAttachTap: isDir
-                                    ? null
-                                    : () async {
-                                        final ok = await widget.brain
-                                            .attachFileFromPath(entity.path);
-                                        if (ok) {
-                                          widget.onStatusToast?.call(
-                                              'Pripeta datoteka: $name');
-                                        }
-                                      },
+                                onSetProjectTap: isDir
+                                    ? () async {
+                                        await widget.brain
+                                            .setActiveProjectFolder(
+                                          entity.path,
+                                          syncBrowser: false,
+                                        );
+                                        widget.onStatusToast?.call(
+                                          'Aktivni projekt: $name (${widget.brain.workspaceService.indexedFiles.length} datotek)',
+                                        );
+                                      }
+                                    : null,
+                                onAttachTap: () async {
+                                  final ok = isDir
+                                      ? await widget.brain
+                                          .attachFolderFromPath(entity.path)
+                                      : await widget.brain
+                                          .attachFileFromPath(entity.path);
+                                  if (ok) {
+                                    widget.onStatusToast?.call(
+                                      isDir
+                                          ? 'Pripeta celotna mapa: $name'
+                                          : 'Pripeta datoteka: $name',
+                                    );
+                                  }
+                                },
                               );
                             },
                           ),
@@ -575,14 +784,18 @@ class _FileEntryTile extends StatefulWidget {
   final String name;
   final IconData icon;
   final bool isDirectory;
+  final bool isActiveProject;
   final VoidCallback onPrimaryTap;
+  final VoidCallback? onSetProjectTap;
   final VoidCallback? onAttachTap;
 
   const _FileEntryTile({
     required this.name,
     required this.icon,
     required this.isDirectory,
+    this.isActiveProject = false,
     required this.onPrimaryTap,
+    this.onSetProjectTap,
     this.onAttachTap,
   });
 
@@ -616,17 +829,23 @@ class _FileEntryTileState extends State<_FileEntryTile> {
           decoration: BoxDecoration(
             color: _hovered
                 ? hud.primaryPeriwinkle.alphaPct(0.11)
-                : Colors.transparent,
+                : (widget.isActiveProject
+                    ? hud.accentSuccessGreen.alphaPct(0.08)
+                    : Colors.transparent),
             borderRadius: BorderRadius.circular(5),
           ),
           child: Row(
             children: [
               Icon(
-                widget.icon,
+                widget.isActiveProject
+                    ? Icons.folder_special_rounded
+                    : widget.icon,
                 size: 15,
-                color: widget.isDirectory
-                    ? hud.primaryPeriwinkle
-                    : hud.textMuted,
+                color: widget.isActiveProject
+                    ? hud.accentSuccessGreen
+                    : (widget.isDirectory
+                        ? hud.primaryPeriwinkle
+                        : hud.textMuted),
               ),
               const SizedBox(width: 8),
               Expanded(
@@ -645,11 +864,29 @@ class _FileEntryTileState extends State<_FileEntryTile> {
                   ),
                 ),
               ),
-              if (!widget.isDirectory &&
+              if (widget.isDirectory &&
                   _hovered &&
-                  widget.onAttachTap != null)
+                  widget.onSetProjectTap != null)
                 Tooltip(
-                  message: 'Pripni datoteko v klepet',
+                  message: 'Nastavi kot aktivni projekt za LLM',
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(4),
+                    onTap: widget.onSetProjectTap,
+                    child: Padding(
+                      padding: const EdgeInsets.all(3),
+                      child: Icon(
+                        Icons.my_location_rounded,
+                        size: 13.5,
+                        color: hud.accentSuccessGreen,
+                      ),
+                    ),
+                  ),
+                ),
+              if (_hovered && widget.onAttachTap != null)
+                Tooltip(
+                  message: widget.isDirectory
+                      ? 'Pripni celotno mapo v klepet'
+                      : 'Pripni datoteko v klepet',
                   child: InkWell(
                     borderRadius: BorderRadius.circular(4),
                     onTap: widget.onAttachTap,
