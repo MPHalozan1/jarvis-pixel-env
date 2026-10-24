@@ -1,22 +1,24 @@
-name: jarvis_v2
-description: "ULTRON // Neural Consciousness, Web Gemini Self-Prompt Bridge & Live Code Studio"
+name: jarvis_001
+description: "Ultron Neural Core - Minimalist Local AI Studio"
 publish_to: 'none'
-version: 2.0.0+1
+version: 2.1.0+1
 
 environment:
-  sdk: ^3.7.0
+  sdk: '>=3.2.0 <4.0.0'
 
 dependencies:
   flutter:
     sdk: flutter
-  cupertino_icons: ^2.0.0
-  path_provider: ^2.1.5
-  flutter_secure_storage: ^11.2.0
+  cupertino_icons: ^1.0.8
+  path_provider: ^2.1.4
+  flutter_secure_storage: ^9.2.2
+  file_picker: ^8.1.2
+  archive: ^3.6.1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^6.0.0
+  flutter_lints: ^4.0.0
 
 flutter:
   uses-material-design: true

@@ -1,45 +1,23 @@
-import 'dart:math';
+import 'dart:math' as math;
+import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'ultron_hud_theme.dart';
 
-//**********************************************************************
-// PHASE 1 // IMAGE 1 PROCEDURAL 3D PCB/CIRCUIT WIREFRAME ORB          *
-// - Thin 1px pale periwinkle (#A9A8FF) lines + #4B3FFF violet bloom   *
-// - Jagged 45°/90° axis-snapped PCB traces with terminal hooks        *
-// - 3 Nested Shells (Outer polar cage, Mid arcs, Inner hex honeycomb) *
-// - Tilted Equatorial Band + Corner-to-Corner Diagonal Axis Beam      *
-// - Five States: STANDBY, LISTENING, THINKING, ANSWERING, ERROR       *
-//**********************************************************************
-
-const int strandCount = 175;
-const double glowIntensity = 0.68;
-const double rotationSpeed = 0.24;
-
+// Stanja osrednje nevronske krogle
 enum OrbState {
-  standby,   // 1. Calm slow rotation, dim glow, lazy strand crawl
-  listening, // 2. Input focused/typing: shells nearly hold, ring breathes gently
-  thinking,  // 3. Request in flight: core mesh pulses, diagonal beam intensifies
-  answering, // 4. Streaming: bright pulses travel outward along strands
-  error,     // 5. Brief ~1s shift toward red/magenta (#FF2A6D), then STANDBY
+  standby,
+  listening,
+  thinking,
+  answering,
+  error,
 }
 
-enum ShellLayer {
-  outerCage,
-  midArcs,
-  innerHexCore,
-  equatorialRing,
-  diagonalBeam,
-}
-
-class Vec3 {
-  final double x;
-  final double y;
-  final double z;
-  const Vec3(this.x, this.y, this.z);
-}
-
+//**************
+// Posamezna 3D vezalna nit na površini holografske sfere *
+//**************
 class CircuitStrand {
-  final ShellLayer layer;
-  final List<Vec3> points;
+  final int layer;
+  final List<List<double>> points;
   final double phaseOffset;
 
   const CircuitStrand({
@@ -49,159 +27,99 @@ class CircuitStrand {
   });
 }
 
-// Generates the 3D jagged PCB strands once at startup with a fixed seed
+//**************
+// Sinaptični delec za prostorski globinski učinek okoli jedra *
+//**************
+class SynapticParticle {
+  final double theta;
+  final double phi;
+  final double radiusFactor;
+  final double speedFactor;
+  final double size;
+
+  const SynapticParticle({
+    required this.theta,
+    required this.phi,
+    required this.radiusFactor,
+    required this.speedFactor,
+    required this.size,
+  });
+}
+
+//**************
+// Predpomnilnik 3D geometrije krogle za ničelno obremenitev pomnilnika med izrisom *
+// Zagotavlja tekoče delovanje pri 60 Hz in 240 Hz *
+//**************
 class OrbGeometryCache {
   static final OrbGeometryCache instance = OrbGeometryCache._internal();
+
   late final List<CircuitStrand> strands;
+  late final List<SynapticParticle> synapticParticles;
 
   OrbGeometryCache._internal() {
-    final rng = Random(42);
-    final List<CircuitStrand> built = [];
+    final rng = math.Random(42);
+    final generatedStrands = <CircuitStrand>[];
 
-    final outerCount = (strandCount * 0.34).round();
-    final midCount = (strandCount * 0.20).round();
-    final hexCount = (strandCount * 0.22).round();
-    final eqCount = (strandCount * 0.14).round();
-    final beamCount = strandCount - outerCount - midCount - hexCount - eqCount;
+    // Ustvarimo dve gnezdeni lupini nevronskih niti
+    for (int layer = 0; layer < 2; layer++) {
+      final double rScale = layer == 0 ? 1.0 : 0.72;
+      final int count = layer == 0 ? 28 : 18;
 
-    // 1. OUTER SHELL: Fragmented polar bands & jagged PCB traces with 45°/90° kinks
-    for (int i = 0; i < outerCount; i++) {
-      final poleSign = i.isEven ? 1.0 : -1.0;
-      double lat = poleSign * (0.25 + rng.nextDouble() * 1.15);
-      double lon = rng.nextDouble() * 2 * pi;
-      final r = 0.96 + rng.nextDouble() * 0.05;
-      final steps = 9 + rng.nextInt(12);
-      final List<Vec3> pts = [];
+      for (int i = 0; i < count; i++) {
+        final double baseLat = (rng.nextDouble() - 0.5) * math.pi * 0.92;
+        final double baseLon = rng.nextDouble() * math.pi * 2;
+        final int segments = 14 + rng.nextInt(10);
+        final pts = <List<double>>[];
 
-      for (int s = 0; s < steps; s++) {
-        pts.add(_sphericalToCartesian(r, lat, lon));
-        final mode = s % 3;
-        if (mode == 0) {
-          lon += (rng.nextBool() ? 1 : -1) * (0.09 + rng.nextDouble() * 0.08);
-        } else if (mode == 1) {
-          lat += (rng.nextBool() ? 1 : -1) * 0.06;
-          lon += 0.06;
-        } else {
-          lat += (s == steps - 2 ? 0.045 : -0.03);
+        double curLat = baseLat;
+        double curLon = baseLon;
+        for (int s = 0; s < segments; s++) {
+          final double x = rScale * math.cos(curLat) * math.cos(curLon);
+          final double y = rScale * math.sin(curLat);
+          final double z = rScale * math.cos(curLat) * math.sin(curLon);
+          pts.add([x, y, z]);
+
+          curLon += 0.11 + (s.isEven ? 0.04 : -0.02);
+          curLat += (s % 3 == 0 ? 0.05 : -0.025);
+          curLat = curLat.clamp(-1.42, 1.42);
         }
+
+        generatedStrands.add(
+          CircuitStrand(
+            layer: layer,
+            points: pts,
+            phaseOffset: rng.nextDouble() * math.pi * 2,
+          ),
+        );
       }
-      built.add(CircuitStrand(
-        layer: ShellLayer.outerCage,
-        points: pts,
-        phaseOffset: rng.nextDouble(),
-      ));
     }
+    strands = List.unmodifiable(generatedStrands);
 
-    // 2. MID SHELL: Thinner concentric stepped arcs
-    for (int i = 0; i < midCount; i++) {
-      double lat = (rng.nextDouble() - 0.5) * 2.2;
-      double lon = rng.nextDouble() * 2 * pi;
-      const r = 0.68;
-      final steps = 8 + rng.nextInt(9);
-      final List<Vec3> pts = [];
-
-      for (int s = 0; s < steps; s++) {
-        pts.add(_sphericalToCartesian(r, lat, lon));
-        lon += 0.11;
-        if (s % 4 == 2) {
-          lat += (rng.nextBool() ? 0.05 : -0.05);
-        }
-      }
-      built.add(CircuitStrand(
-        layer: ShellLayer.midArcs,
-        points: pts,
-        phaseOffset: rng.nextDouble(),
-      ));
+    // Ustvarimo sinaptične delce
+    final generatedParticles = <SynapticParticle>[];
+    for (int i = 0; i < 44; i++) {
+      generatedParticles.add(
+        SynapticParticle(
+          theta: rng.nextDouble() * math.pi * 2,
+          phi: math.acos(2 * rng.nextDouble() - 1),
+          radiusFactor: 0.52 + rng.nextDouble() * 0.66,
+          speedFactor: 0.55 + rng.nextDouble() * 1.15,
+          size: 1.1 + rng.nextDouble() * 1.9,
+        ),
+      );
     }
-
-    // 3. INNER CORE: Dense honeycomb / hexagonal interlocking cells
-    for (int i = 0; i < hexCount; i++) {
-      final centerLat = (rng.nextDouble() - 0.5) * 2.6;
-      final centerLon = rng.nextDouble() * 2 * pi;
-      final r = 0.36 + rng.nextDouble() * 0.08;
-      const cellRadius = 0.09;
-      final List<Vec3> pts = [];
-
-      for (int h = 0; h <= 6; h++) {
-        final angle = (h / 6.0) * 2 * pi;
-        final dLat = sin(angle) * cellRadius;
-        final dLon = cos(angle) * cellRadius;
-        pts.add(_sphericalToCartesian(r, centerLat + dLat, centerLon + dLon));
-      }
-      built.add(CircuitStrand(
-        layer: ShellLayer.innerHexCore,
-        points: pts,
-        phaseOffset: rng.nextDouble(),
-      ));
-    }
-
-    // 4. TILTED EQUATORIAL RING: Tightly packed parallel combed strands
-    const tiltAngle = -0.22;
-    for (int i = 0; i < eqCount; i++) {
-      final bandOffset = (rng.nextDouble() - 0.5) * 0.11;
-      final r = 1.03 + rng.nextDouble() * 0.10;
-      double lon = rng.nextDouble() * 2 * pi;
-      final steps = 16 + rng.nextInt(12);
-      final List<Vec3> pts = [];
-
-      for (int s = 0; s < steps; s++) {
-        final raw = _sphericalToCartesian(r, bandOffset, lon);
-        final yTilted = raw.y * cos(tiltAngle) - raw.x * sin(tiltAngle);
-        final xTilted = raw.y * sin(tiltAngle) + raw.x * cos(tiltAngle);
-        pts.add(Vec3(xTilted, yTilted, raw.z));
-        lon += 0.11;
-        if (s == steps - 2) {
-          lon += 0.03;
-        }
-      }
-      built.add(CircuitStrand(
-        layer: ShellLayer.equatorialRing,
-        points: pts,
-        phaseOffset: rng.nextDouble(),
-      ));
-    }
-
-    // 5. STRAIGHT DIAGONAL AXIS BEAM: Corner-to-corner parallel lines
-    const beamAngle = 0.96;
-    final dirX = sin(beamAngle);
-    final dirY = cos(beamAngle);
-    final perpX = -dirY;
-    final perpY = dirX;
-
-    for (int i = 0; i < beamCount; i++) {
-      final spread = (rng.nextDouble() - 0.5) * 0.075;
-      final zSpread = (rng.nextDouble() - 0.5) * 0.06;
-      final List<Vec3> pts = [];
-      const segs = 12;
-
-      for (int s = 0; s <= segs; s++) {
-        final t = -1.06 + (s / segs) * 2.12;
-        final kink = (s == 2 || s == segs - 2) ? 0.014 : 0.0;
-        final px = dirX * t + perpX * (spread + kink);
-        final py = dirY * t + perpY * (spread + kink);
-        pts.add(Vec3(px, py, zSpread));
-      }
-      built.add(CircuitStrand(
-        layer: ShellLayer.diagonalBeam,
-        points: pts,
-        phaseOffset: rng.nextDouble(),
-      ));
-    }
-
-    strands = built;
-  }
-
-  static Vec3 _sphericalToCartesian(double r, double lat, double lon) {
-    final clat = cos(lat);
-    return Vec3(
-      r * clat * sin(lon),
-      r * sin(lat),
-      r * clat * cos(lon),
-    );
+    synapticParticles = List.unmodifiable(generatedParticles);
   }
 }
 
+//**************
+// Vizualni parametri krogle z gladko interpolacijo med stanji *
+//**************
 class OrbVisualParams {
+  static const int strandCount = 46;
+  static const double glowIntensity = 1.0;
+  static const double rotationSpeed = 0.45;
+
   final double shellSpinMultiplier;
   final double ringDriftMultiplier;
   final double glowScale;
@@ -226,78 +144,75 @@ class OrbVisualParams {
         return const OrbVisualParams(
           shellSpinMultiplier: 1.0,
           ringDriftMultiplier: 1.0,
-          glowScale: 0.75,
-          coreBrightness: 0.80,
-          beamBrightness: 0.88,
-          outwardPulseStrength: 0.0,
+          glowScale: 1.0,
+          coreBrightness: 0.55,
+          beamBrightness: 0.35,
+          outwardPulseStrength: 0.04,
           errorTintMix: 0.0,
         );
       case OrbState.listening:
         return const OrbVisualParams(
-          shellSpinMultiplier: 0.14,
-          ringDriftMultiplier: 0.35,
-          glowScale: 0.95,
-          coreBrightness: 0.94,
-          beamBrightness: 0.95,
+          shellSpinMultiplier: 1.45,
+          ringDriftMultiplier: 1.35,
+          glowScale: 1.12,
+          coreBrightness: 0.76,
+          beamBrightness: 0.55,
           outwardPulseStrength: 0.08,
           errorTintMix: 0.0,
         );
       case OrbState.thinking:
         return const OrbVisualParams(
-          shellSpinMultiplier: 1.65,
-          ringDriftMultiplier: 1.85,
-          glowScale: 1.15,
-          coreBrightness: 1.25,
-          beamBrightness: 1.35,
-          outwardPulseStrength: 0.35,
+          shellSpinMultiplier: 2.35,
+          ringDriftMultiplier: 2.1,
+          glowScale: 1.24,
+          coreBrightness: 0.92,
+          beamBrightness: 0.85,
+          outwardPulseStrength: 0.14,
           errorTintMix: 0.0,
         );
       case OrbState.answering:
         return const OrbVisualParams(
-          shellSpinMultiplier: 1.25,
-          ringDriftMultiplier: 1.45,
-          glowScale: 1.20,
-          coreBrightness: 1.30,
-          beamBrightness: 1.25,
-          outwardPulseStrength: 1.0,
+          shellSpinMultiplier: 1.75,
+          ringDriftMultiplier: 1.65,
+          glowScale: 1.18,
+          coreBrightness: 0.86,
+          beamBrightness: 0.72,
+          outwardPulseStrength: 0.11,
           errorTintMix: 0.0,
         );
       case OrbState.error:
         return const OrbVisualParams(
-          shellSpinMultiplier: 0.45,
-          ringDriftMultiplier: 0.50,
-          glowScale: 1.25,
-          coreBrightness: 1.15,
-          beamBrightness: 1.20,
-          outwardPulseStrength: 0.25,
+          shellSpinMultiplier: 0.65,
+          ringDriftMultiplier: 0.75,
+          glowScale: 1.08,
+          coreBrightness: 0.80,
+          beamBrightness: 0.60,
+          outwardPulseStrength: 0.09,
           errorTintMix: 1.0,
         );
     }
   }
 
-  static OrbVisualParams lerp(
-    OrbVisualParams a,
-    OrbVisualParams b,
-    double t,
-  ) {
-    final c = t.clamp(0.0, 1.0);
+  static OrbVisualParams lerp(OrbVisualParams a, OrbVisualParams b, double t) {
     return OrbVisualParams(
-      shellSpinMultiplier: a.shellSpinMultiplier +
-          (b.shellSpinMultiplier - a.shellSpinMultiplier) * c,
-      ringDriftMultiplier: a.ringDriftMultiplier +
-          (b.ringDriftMultiplier - a.ringDriftMultiplier) * c,
-      glowScale: a.glowScale + (b.glowScale - a.glowScale) * c,
-      coreBrightness:
-          a.coreBrightness + (b.coreBrightness - a.coreBrightness) * c,
-      beamBrightness:
-          a.beamBrightness + (b.beamBrightness - a.beamBrightness) * c,
-      outwardPulseStrength: a.outwardPulseStrength +
-          (b.outwardPulseStrength - a.outwardPulseStrength) * c,
-      errorTintMix: a.errorTintMix + (b.errorTintMix - a.errorTintMix) * c,
+      shellSpinMultiplier:
+          lerpDouble(a.shellSpinMultiplier, b.shellSpinMultiplier, t)!,
+      ringDriftMultiplier:
+          lerpDouble(a.ringDriftMultiplier, b.ringDriftMultiplier, t)!,
+      glowScale: lerpDouble(a.glowScale, b.glowScale, t)!,
+      coreBrightness: lerpDouble(a.coreBrightness, b.coreBrightness, t)!,
+      beamBrightness: lerpDouble(a.beamBrightness, b.beamBrightness, t)!,
+      outwardPulseStrength:
+          lerpDouble(a.outwardPulseStrength, b.outwardPulseStrength, t)!,
+      errorTintMix: lerpDouble(a.errorTintMix, b.errorTintMix, t)!,
     );
   }
 }
 
+//**************
+// Glavni 3D holografski izrisovalnik Ultron nevronske krogle *
+// Optimiziran za minimalno porabo CPE in GPE brez izgube vizualnih učinkov *
+//**************
 class UltronWireframeOrbPainter extends CustomPainter {
   final double shellAngleY;
   final double ringAngleY;
@@ -305,185 +220,236 @@ class UltronWireframeOrbPainter extends CustomPainter {
   final double pulseClock;
   final double subtleKeystrokeRipple;
   final OrbVisualParams params;
+  final bool isDarkMode;
 
-  static final Path _backPath = Path();
-  static final Path _frontOuterMidPath = Path();
-  static final Path _coreAndRingPath = Path();
-  static final Path _beamAndPulsePath = Path();
-
-  UltronWireframeOrbPainter({
+  const UltronWireframeOrbPainter({
     required this.shellAngleY,
     required this.ringAngleY,
     required this.beamDriftPhase,
     required this.pulseClock,
     required this.subtleKeystrokeRipple,
     required this.params,
+    this.isDarkMode = true,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    _backPath.reset();
-    _frontOuterMidPath.reset();
-    _coreAndRingPath.reset();
-    _beamAndPulsePath.reset();
+    final Offset center = Offset(size.width * 0.5, size.height * 0.5);
+    final double baseRadius = math.min(size.width, size.height) * 0.34;
+    final double breath =
+        1.0 + math.sin(pulseClock * 2.1) * params.outwardPulseStrength * 0.45;
+    final double rippleScale = 1.0 + subtleKeystrokeRipple * 0.065;
+    final double orbRadius = baseRadius * breath * rippleScale;
 
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = min(size.width, size.height) * 0.40;
+    final Color baseBlue = isDarkMode
+        ? const Color(0xFF8EA8FF)
+        : const Color(0xFF3B5BDB);
+    final Color baseViolet = isDarkMode
+        ? const Color(0xFF7B68EE)
+        : const Color(0xFF6741D9);
+    final Color errorRed = const Color(0xFFFF5C77);
 
-    final crispColor = Color.lerp(
-      const Color(0xFFA9A8FF),
-      const Color(0xFFFF2A6D),
-      params.errorTintMix,
-    )!;
-    final bloomColor = Color.lerp(
-      const Color(0xFF4B3FFF),
-      const Color(0xFFD90452),
-      params.errorTintMix,
-    )!;
-    final coreHighlight = Color.lerp(
-      const Color(0xFFDCD8FF),
-      const Color(0xFFFF85A9),
-      params.errorTintMix,
-    )!;
+    final Color primaryTone =
+        Color.lerp(baseBlue, errorRed, params.errorTintMix)!;
+    final Color secondaryTone =
+        Color.lerp(baseViolet, const Color(0xFFFF8787), params.errorTintMix)!;
 
-    const tiltX = 0.22;
-    final cosX = cos(tiltX);
-    final sinX = sin(tiltX);
+    // 1. Mehak atmosferski sij v ozadju jedra
+    final double glowR = orbRadius * 1.55 * params.glowScale;
+    final Paint auraPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          primaryTone.alphaPct(
+              (isDarkMode ? 0.24 : 0.16) * params.coreBrightness),
+          secondaryTone.alphaPct(
+              (isDarkMode ? 0.10 : 0.06) * params.coreBrightness),
+          primaryTone.alphaPct(0.0),
+        ],
+        stops: const [0.0, 0.48, 1.0],
+      ).createShader(Rect.fromCircle(center: center, radius: glowR));
+    canvas.drawCircle(center, glowR, auraPaint);
 
-    final strands = OrbGeometryCache.instance.strands;
-    final waveFront = (pulseClock * 1.4) % 1.0;
+    // 2. Diagonalni energijski žarek skozi jedro
+    final double beamAngle =
+        -0.58 + math.sin(beamDriftPhase * 0.7) * 0.08;
+    final Offset beamOffset = Offset(
+      math.cos(beamAngle) * orbRadius * 1.32,
+      math.sin(beamAngle) * orbRadius * 1.32,
+    );
+    final Paint beamPaint = Paint()
+      ..strokeWidth = 2.0 + subtleKeystrokeRipple * 1.6
+      ..strokeCap = StrokeCap.round
+      ..shader = LinearGradient(
+        colors: [
+          primaryTone.alphaPct(0.0),
+          secondaryTone.alphaPct(0.45 * params.beamBrightness),
+          Colors.white.alphaPct(
+              (isDarkMode ? 0.72 : 0.45) * params.beamBrightness),
+          secondaryTone.alphaPct(0.45 * params.beamBrightness),
+          primaryTone.alphaPct(0.0),
+        ],
+        stops: const [0.0, 0.30, 0.50, 0.70, 1.0],
+      ).createShader(
+        Rect.fromPoints(center - beamOffset, center + beamOffset),
+      );
+    canvas.drawLine(center - beamOffset, center + beamOffset, beamPaint);
 
-    for (int i = 0; i < strands.length; i++) {
-      final strand = strands[i];
-      final pts = strand.points;
-      if (pts.length < 2) continue;
+    // 3. 3D gnezdena mreža nevronskih niti
+    final cache = OrbGeometryCache.instance;
+    final double cosY = math.cos(shellAngleY);
+    final double sinY = math.sin(shellAngleY);
+    const double tiltX = 0.28;
+    final double cosX = math.cos(tiltX);
+    final double sinX = math.sin(tiltX);
 
-      double rotY = shellAngleY;
-      if (strand.layer == ShellLayer.equatorialRing) {
-        rotY = ringAngleY;
-      } else if (strand.layer == ShellLayer.diagonalBeam) {
-        rotY = sin(beamDriftPhase) * 0.08;
-      } else if (strand.layer == ShellLayer.midArcs) {
-        rotY = -shellAngleY * 0.65;
+    final Paint strandPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    final Path strandPath = Path();
+
+    for (final strand in cache.strands) {
+      strandPath.reset();
+      double avgZ = 0.0;
+      final double layerSpin = strand.layer == 0 ? 1.0 : -1.35;
+      final double localCosY =
+          strand.layer == 0 ? cosY : math.cos(shellAngleY * layerSpin);
+      final double localSinY =
+          strand.layer == 0 ? sinY : math.sin(shellAngleY * layerSpin);
+
+      for (int i = 0; i < strand.points.length; i++) {
+        final pt = strand.points[i];
+        final double x0 = pt[0];
+        final double y0 = pt[1];
+        final double z0 = pt[2];
+
+        // Rotacija okoli osi Y in nagib okoli osi X
+        final double x1 = x0 * localCosY - z0 * localSinY;
+        final double z1 = x0 * localSinY + z0 * localCosY;
+        final double y2 = y0 * cosX - z1 * sinX;
+        final double z2 = y0 * sinX + z1 * cosX;
+
+        avgZ += z2;
+        final double perspective = 2.6 / (2.6 - z2 * 0.55);
+        final double sx = center.dx + x1 * orbRadius * perspective;
+        final double sy = center.dy + y2 * orbRadius * perspective;
+
+        if (i == 0) {
+          strandPath.moveTo(sx, sy);
+        } else {
+          strandPath.lineTo(sx, sy);
+        }
       }
 
-      final cosY = cos(rotY);
-      final sinY = sin(rotY);
+      avgZ /= strand.points.length;
+      final double depthFactor = ((avgZ + 1.0) * 0.5).clamp(0.12, 1.0);
+      final double shimmer = 0.72 +
+          0.28 * math.sin(pulseClock * 2.8 + strand.phaseOffset);
 
-      final crawlShift = (pulseClock * 0.35 + strand.phaseOffset) % 1.0;
-      final isAnsweringPulse = params.outwardPulseStrength > 0.15 &&
-          ((strand.phaseOffset - waveFront).abs() < 0.16);
+      final Color lineColor = strand.layer == 0 ? primaryTone : secondaryTone;
+      final double opacity =
+          (depthFactor * shimmer * (isDarkMode ? 0.62 : 0.52) +
+                  subtleKeystrokeRipple * 0.18)
+              .clamp(0.06, 0.92);
 
-      double zSum = 0.0;
-      Offset? prevScreen;
+      strandPaint
+        ..color = lineColor.alphaPct(opacity)
+        ..strokeWidth = (strand.layer == 0 ? 1.25 : 0.95) *
+            (0.75 + depthFactor * 0.45);
 
-      for (int p = 0; p < pts.length; p++) {
-        final v = pts[p];
+      canvas.drawPath(strandPath, strandPaint);
+    }
 
-        final x1 = v.x * cosY - v.z * sinY;
-        final z1 = v.x * sinY + v.z * cosY;
-        final y2 = v.y * cosX - z1 * sinX;
-        final z2 = v.y * sinX + z1 * cosX;
+    // 4. Nagnjen ekvatorialni orbitalni obroč
+    final Path ringPath = Path();
+    const int ringSteps = 64;
+    const double ringTilt = 0.52;
+    final double cosRT = math.cos(ringTilt);
+    final double sinRT = math.sin(ringTilt);
+    final double ringR = orbRadius * (1.22 + subtleKeystrokeRipple * 0.04);
 
-        zSum += z2;
+    for (int i = 0; i <= ringSteps; i++) {
+      final double t = (i / ringSteps) * math.pi * 2 + ringAngleY;
+      final double rx = math.cos(t) * ringR;
+      final double rz = math.sin(t) * ringR;
+      final double ry = rz * sinRT;
+      final double depthZ = rz * cosRT / ringR;
+      final double persp = 2.8 / (2.8 - depthZ * 0.45);
 
-        final persp = 1.0 / (2.35 - z2 * 0.55);
-        final sx = center.dx + x1 * radius * 2.15 * persp;
-        final sy = center.dy + y2 * radius * 2.15 * persp;
-        final currentScreen = Offset(sx, sy);
-
-        if (prevScreen != null) {
-          final skipSegment = strand.layer == ShellLayer.outerCage &&
-              ((p / pts.length - crawlShift).abs() < 0.09);
-
-          if (!skipSegment) {
-            final avgZ = zSum / (p + 1);
-            if (strand.layer == ShellLayer.diagonalBeam || isAnsweringPulse) {
-              _beamAndPulsePath.moveTo(prevScreen.dx, prevScreen.dy);
-              _beamAndPulsePath.lineTo(currentScreen.dx, currentScreen.dy);
-            } else if (avgZ < -0.08) {
-              _backPath.moveTo(prevScreen.dx, prevScreen.dy);
-              _backPath.lineTo(currentScreen.dx, currentScreen.dy);
-            } else if (strand.layer == ShellLayer.innerHexCore ||
-                strand.layer == ShellLayer.equatorialRing) {
-              _coreAndRingPath.moveTo(prevScreen.dx, prevScreen.dy);
-              _coreAndRingPath.lineTo(currentScreen.dx, currentScreen.dy);
-            } else {
-              _frontOuterMidPath.moveTo(prevScreen.dx, prevScreen.dy);
-              _frontOuterMidPath.lineTo(currentScreen.dx, currentScreen.dy);
-            }
-          }
-        }
-        prevScreen = currentScreen;
+      final double px = center.dx + rx * persp;
+      final double py = center.dy + ry * persp;
+      if (i == 0) {
+        ringPath.moveTo(px, py);
+      } else {
+        ringPath.lineTo(px, py);
       }
     }
 
-    final effGlow = (glowIntensity * params.glowScale).clamp(0.15, 1.0);
-    final bloomPaint = Paint()
-      ..color = bloomColor.withValues(alpha: 0.42 * effGlow)
+    final Paint ringPaint = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 3.2
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4.5);
+      ..strokeWidth = 1.15
+      ..color = primaryTone.alphaPct(isDarkMode ? 0.42 : 0.35);
+    canvas.drawPath(ringPath, ringPaint);
 
-    canvas.drawPath(_frontOuterMidPath, bloomPaint);
-    canvas.drawPath(
-      _coreAndRingPath,
-      bloomPaint..color = bloomColor.withValues(alpha: 0.58 * effGlow),
-    );
-    canvas.drawPath(
-      _beamAndPulsePath,
-      bloomPaint
-        ..color = crispColor.withValues(alpha: 0.72 * effGlow)
-        ..strokeWidth = 4.0,
-    );
+    // 5. Sinaptični delci
+    final Paint particlePaint = Paint()..style = PaintingStyle.fill;
+    for (final p in cache.synapticParticles) {
+      final double angle = p.theta + shellAngleY * p.speedFactor;
+      final double sinPhi = math.sin(p.phi);
+      final double px3 = p.radiusFactor * sinPhi * math.cos(angle);
+      final double py3 = p.radiusFactor * math.cos(p.phi);
+      final double pz3 = p.radiusFactor * sinPhi * math.sin(angle);
 
-    canvas.drawPath(
-      _backPath,
-      Paint()
-        ..color = crispColor.withValues(alpha: 0.24)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 0.75,
-    );
+      final double depth = ((pz3 + 1.2) / 2.4).clamp(0.15, 1.0);
+      final double sx = center.dx + px3 * orbRadius;
+      final double sy = center.dy + py3 * orbRadius;
 
-    canvas.drawPath(
-      _frontOuterMidPath,
-      Paint()
-        ..color = crispColor.withValues(alpha: 0.78)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.0,
-    );
+      particlePaint.color = primaryTone.alphaPct(
+        (depth * 0.65 * params.coreBrightness + subtleKeystrokeRipple * 0.2)
+            .clamp(0.08, 0.95),
+      );
+      canvas.drawCircle(
+        Offset(sx, sy),
+        p.size * (0.7 + depth * 0.5),
+        particlePaint,
+      );
+    }
 
-    canvas.drawPath(
-      _coreAndRingPath,
-      Paint()
-        ..color = crispColor.withValues(
-            alpha: (0.86 * params.coreBrightness).clamp(0.0, 1.0))
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.05,
-    );
-
-    canvas.drawPath(
-      _beamAndPulsePath,
-      Paint()
-        ..color = coreHighlight.withValues(
-            alpha: (0.94 * params.beamBrightness).clamp(0.0, 1.0))
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.25,
-    );
+    // 6. Svetlo jedro in odzivni val ob tipkanju
+    final Paint corePaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          Colors.white.alphaPct(
+              (isDarkMode ? 0.85 : 0.70) * params.coreBrightness),
+          primaryTone.alphaPct(0.42 * params.coreBrightness),
+          primaryTone.alphaPct(0.0),
+        ],
+      ).createShader(Rect.fromCircle(center: center, radius: orbRadius * 0.28));
+    canvas.drawCircle(center, orbRadius * 0.28, corePaint);
 
     if (subtleKeystrokeRipple > 0.01) {
-      final rippleR = radius * (0.38 + (1.0 - subtleKeystrokeRipple) * 0.22);
+      final Paint ripplePaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.3
+        ..color =
+            primaryTone.alphaPct((subtleKeystrokeRipple * 0.55).clamp(0.0, 0.8));
       canvas.drawCircle(
         center,
-        rippleR,
-        Paint()
-          ..color = crispColor.withValues(alpha: subtleKeystrokeRipple * 0.28)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 0.9,
+        orbRadius * (0.85 + (1.0 - subtleKeystrokeRipple) * 0.38),
+        ripplePaint,
       );
     }
   }
 
   @override
-  bool shouldRepaint(covariant UltronWireframeOrbPainter oldDelegate) => true;
+  bool shouldRepaint(covariant UltronWireframeOrbPainter oldDelegate) {
+    return oldDelegate.shellAngleY != shellAngleY ||
+        oldDelegate.ringAngleY != ringAngleY ||
+        oldDelegate.beamDriftPhase != beamDriftPhase ||
+        oldDelegate.pulseClock != pulseClock ||
+        oldDelegate.subtleKeystrokeRipple != subtleKeystrokeRipple ||
+        oldDelegate.isDarkMode != isDarkMode ||
+        oldDelegate.params.coreBrightness != params.coreBrightness ||
+        oldDelegate.params.errorTintMix != params.errorTintMix;
+  }
 }

@@ -3,12 +3,10 @@ import 'backend/ultron_brain_router.dart';
 import 'frontend/ultron_dashboard_ui.dart';
 import 'frontend/ultron_hud_theme.dart';
 
-//**********************************************************************
-// ULTRON // NEURAL CONSCIOUSNESS ENTRY POINT                          *
-// Boots the local Qwen2.5-Coder-14B engine, project code learner,     *
-// Git automation bridge, and interactive 3D HUD workspace.            *
-//**********************************************************************
-
+//**************
+// Vstopna točka aplikacije Ultron Neural Core *
+// Skrbi za inicializacijo jedra in preklop temnega ter svetlega načina *
+//**************
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const UltronNeuralApp());
@@ -22,14 +20,14 @@ class UltronNeuralApp extends StatefulWidget {
 }
 
 class _UltronNeuralAppState extends State<UltronNeuralApp> {
-  // True = Deep Void Dark Mode, False = Technical Daylight Mode
-  bool _isDarkMode = true;
   late final UltronBrainRouter _brain;
+  bool _isDarkMode = true;
 
   @override
   void initState() {
     super.initState();
     _brain = UltronBrainRouter();
+    _brain.initialize();
   }
 
   @override
@@ -38,16 +36,27 @@ class _UltronNeuralAppState extends State<UltronNeuralApp> {
     super.dispose();
   }
 
+  // Preklopi med temno in svetlo HUD temo z gladko animacijo
+  void _toggleTheme() {
+    setState(() {
+      _isDarkMode = !_isDarkMode;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    final themeData = UltronHudTheme.buildThemeData(isDark: _isDarkMode);
+
     return MaterialApp(
-      title: 'ULTRON // LOCAL QWEN 14B & GIT STUDIO',
+      title: 'Ultron Neural Core',
       debugShowCheckedModeBanner: false,
-      theme: UltronHudTheme.buildThemeData(_isDarkMode),
+      theme: themeData,
+      themeAnimationDuration: const Duration(milliseconds: 280),
+      themeAnimationCurve: Curves.easeOutCubic,
       home: UltronDashboardScreen(
         brain: _brain,
         isDarkMode: _isDarkMode,
-        onToggleTheme: () => setState(() => _isDarkMode = !_isDarkMode),
+        onToggleTheme: _toggleTheme,
       ),
     );
   }

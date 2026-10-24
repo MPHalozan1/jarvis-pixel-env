@@ -1,0 +1,20 @@
+{
+  "title": "hej",
+  "savedAt": "2026-10-24T17:37:57.227164",
+  "turns": [
+    {
+      "role": "user",
+      "content": "hej",
+      "modelUsed": "gemma2:9b",
+      "attachedFiles": [],
+      "timestamp": "2026-10-24T17:37:22.520748"
+    },
+    {
+      "role": "assistant",
+      "content": "Pozdrav! // Pripravljen sem za pomoč. Kaj lahko storim zate? \n",
+      "modelUsed": "gemma2:9b",
+      "attachedFiles": [],
+      "timestamp": "2026-10-24T17:37:57.217648"
+    }
+  ]
+}

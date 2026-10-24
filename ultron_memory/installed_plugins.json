@@ -1,0 +1,18 @@
+[
+  {
+    "id": "clean-code-guard",
+    "name": "Clean Code Guard",
+    "description": "Preverja robne primere, tipe, velike/male začetnice in čitljivost kode.",
+    "repoUrl": "local://builtin/clean-code-guard",
+    "instructions": "Vedno preveri velike in male začetnice identifikatorjev, null-safety ter vrni popolno, delujočo kodo brez izpuščenih delov.",
+    "enabled": true
+  },
+  {
+    "id": "study-assistant",
+    "name": "Study & Exercise Solver",
+    "description": "strukturirano rešuje šolske in laboratorijske vaje iz priloženih dokumentov.",
+    "repoUrl": "local://builtin/study-assistant",
+    "instructions": "Ko uporabnik priloži dokument z vajami, naloge rešuj korak za korakom, jasno razloži logiko in dodaj čisto kodo.",
+    "enabled": true
+  }
+]

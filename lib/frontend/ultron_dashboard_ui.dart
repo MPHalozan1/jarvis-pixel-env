@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import '../backend/ultron_brain_router.dart';
@@ -8,14 +10,11 @@ import 'ultron_bubble_painter.dart';
 import 'ultron_hud_theme.dart';
 import 'vscode_live_window.dart';
 
-//**********************************************************************
-// ULTRON MAIN CYBER-BLUE HUD DASHBOARD                                *
-// - Orb shrinks smoothly to top-center when chatting                  *
-// - Ultron writes responses in the center as pure floating text       *
-//   (no borders, no backgrounds) with a snappy streaming cursor       *
-// - Bottom-left displays 100% live tok/s, CPU %, GPU %, VRAM & RAM    *
-//**********************************************************************
-
+//**************
+// Glavna nadzorna plošča Ultron Neural Core: *
+// Minimalističen HUD z delta-time (60-240Hz) 3D kroglo, hitrim izbirnikom LLM-jev, *
+// pošiljanjem vseh vrst datotek, celotnim PC File Managerjem in aktivnim Learn sistemom *
+//**************
 class UltronDashboardScreen extends StatefulWidget {
   final UltronBrainRouter brain;
   final bool isDarkMode;
@@ -34,72 +33,125 @@ class UltronDashboardScreen extends StatefulWidget {
 
 class _UltronDashboardScreenState extends State<UltronDashboardScreen>
     with SingleTickerProviderStateMixin {
-  late final Ticker _ticker;
-  Duration _lastElapsed = Duration.zero;
+  late final Ticker _orbTicker;
+  Duration _lastTick = Duration.zero;
 
+  final ValueNotifier<int> _orbFrameTick = ValueNotifier<int>(0);
   double _shellAngleY = 0.0;
   double _ringAngleY = 0.0;
   double _beamDriftPhase = 0.0;
   double _pulseClock = 0.0;
+  double _keystrokeRipple = 0.0;
+  OrbVisualParams _currentVisualParams =
+      OrbVisualParams.forState(OrbState.standby);
 
-  OrbState _lastTargetState = OrbState.standby;
-  OrbVisualParams _fromParams = OrbVisualParams.forState(OrbState.standby);
-  OrbVisualParams _currentParams = OrbVisualParams.forState(OrbState.standby);
-  double _stateTransitionT = 1.0;
-
-  final TextEditingController _promptController = TextEditingController();
-  final FocusNode _promptFocusNode = FocusNode();
-  final ScrollController _centerTextScrollController = ScrollController();
+  final TextEditingController _promptCtrl = TextEditingController();
+  final ScrollController _chatScrollCtrl = ScrollController();
 
   bool _showConnectionsModal = false;
+  int _connectionsInitialTab = 0;
   bool _showPluginsModal = false;
-  bool _showHistoryModal = false;
+  String? _toastMessage;
+  Timer? _toastTimer;
 
   @override
   void initState() {
     super.initState();
-    _promptFocusNode.addListener(() {
-      widget.brain.setInputFocus(_promptFocusNode.hasFocus);
-    });
+    widget.brain.addListener(_onBrainUpdated);
 
-    _ticker = createTicker((elapsed) {
-      final dt = (elapsed - _lastElapsed).inMicroseconds / 1000000.0;
-      _lastElapsed = elapsed;
-      if (dt <= 0 || dt > 0.5) return;
+    // Fizikalno neodvisen Ticker (enaka hitrost pri 60 Hz in 240 Hz)
+    _orbTicker = createTicker((elapsed) {
+      final double dt = _lastTick == Duration.zero
+          ? 0.016
+          : ((elapsed - _lastTick).inMicroseconds / 1000000.0)
+              .clamp(0.001, 0.05);
+      _lastTick = elapsed;
 
-      final targetState = widget.brain.orbState;
-      if (targetState != _lastTargetState) {
-        _fromParams = _currentParams;
-        _lastTargetState = targetState;
-        _stateTransitionT = 0.0;
-      }
-      if (_stateTransitionT < 1.0) {
-        _stateTransitionT = (_stateTransitionT + dt / 0.22).clamp(0.0, 1.0);
-        final eased = Curves.easeOutCubic.transform(_stateTransitionT);
-        _currentParams = OrbVisualParams.lerp(
-          _fromParams,
-          OrbVisualParams.forState(_lastTargetState),
-          eased,
-        );
-      }
+      final targetParams = OrbVisualParams.forState(widget.brain.orbState);
+      _currentVisualParams = OrbVisualParams.lerp(
+        _currentVisualParams,
+        targetParams,
+        (dt * 5.5).clamp(0.0, 1.0),
+      );
 
-      _shellAngleY += dt * rotationSpeed * _currentParams.shellSpinMultiplier;
-      _ringAngleY +=
-          dt * (rotationSpeed * 1.35) * _currentParams.ringDriftMultiplier;
-      _beamDriftPhase += dt * 0.75;
+      _shellAngleY +=
+          dt * OrbVisualParams.rotationSpeed * _currentVisualParams.shellSpinMultiplier;
+      _ringAngleY -= dt * 0.36 * _currentVisualParams.ringDriftMultiplier;
+      _beamDriftPhase += dt * 1.1;
       _pulseClock += dt;
-      widget.brain.decayKeystrokeRipple(dt);
-      setState(() {});
-    })..start();
+
+      if (_keystrokeRipple > 0.001) {
+        _keystrokeRipple = (_keystrokeRipple - dt * 2.6).clamp(0.0, 1.0);
+      } else {
+        _keystrokeRipple = 0.0;
+      }
+
+      _orbFrameTick.value++;
+    })
+      ..start();
   }
 
   @override
   void dispose() {
-    _ticker.dispose();
-    _promptController.dispose();
-    _promptFocusNode.dispose();
-    _centerTextScrollController.dispose();
+    _toastTimer?.cancel();
+    widget.brain.removeListener(_onBrainUpdated);
+    _orbTicker.dispose();
+    _orbFrameTick.dispose();
+    _promptCtrl.dispose();
+    _chatScrollCtrl.dispose();
     super.dispose();
+  }
+
+  void _onBrainUpdated() {
+    if (!mounted) return;
+    setState(() {});
+    if (widget.brain.isGenerating && _chatScrollCtrl.hasClients) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_chatScrollCtrl.hasClients) {
+          _chatScrollCtrl.jumpTo(_chatScrollCtrl.position.maxScrollExtent);
+        }
+      });
+    }
+  }
+
+  void _showToast(String message) {
+    _toastTimer?.cancel();
+    setState(() => _toastMessage = message);
+    _toastTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _toastMessage = null);
+    });
+  }
+
+  // Odpre sistemsko okno za izbiro poljubnih datotek vseh vrst
+  Future<void> _pickAnyFiles() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        allowMultiple: true,
+        type: FileType.any,
+      );
+      if (result == null) return;
+
+      int count = 0;
+      for (final f in result.files) {
+        if (f.path != null) {
+          final ok = await widget.brain.attachFileFromPath(f.path!);
+          if (ok) count++;
+        }
+      }
+      if (count > 0) {
+        _showToast('Pripeta $count datoteka/e');
+      }
+    } catch (e) {
+      _showToast('Uporabi pripenjanje prek levega PC File Managerja');
+    }
+  }
+
+  void _submitPrompt() {
+    final text = _promptCtrl.text;
+    if (text.trim().isEmpty && widget.brain.pendingAttachments.isEmpty) return;
+    _promptCtrl.clear();
+    _keystrokeRipple = 1.0;
+    widget.brain.executeUltronPrompt(text);
   }
 
   @override
@@ -107,708 +159,684 @@ class _UltronDashboardScreenState extends State<UltronDashboardScreen>
     final hud =
         Theme.of(context).extension<UltronHudTheme>() ?? UltronHudTheme.dark;
 
-    return ListenableBuilder(
-      listenable: widget.brain,
-      builder: (context, _) {
-        final brain = widget.brain;
-
-        return Scaffold(
-          backgroundColor: hud.bgDeep,
-          body: LayoutBuilder(
-            builder: (context, constraints) {
-              final isNarrow = constraints.maxWidth < 1050;
-              final editorWidth =
-                  isNarrow ? constraints.maxWidth - 28 : 540.0;
-
-              return Column(
-                children: [
-                  _buildModernBlueHeader(hud, brain),
-                  Expanded(
-                    child: Stack(
-                      children: [
-                        // 1. CENTER STAGE: SHRINKING TOP-CENTER ORB + BORDERLESS FLOATING TEXT
-                        Positioned.fill(
-                          child: AnimatedPadding(
-                            duration: const Duration(milliseconds: 220),
-                            curve: Curves.easeOutCubic,
-                            padding: EdgeInsets.only(
-                              right: (!isNarrow && brain.isVsCodeWindowOpen)
-                                  ? editorWidth + 16
-                                  : 0,
-                            ),
-                            child: _buildCenterOrbAndBorderlessTextStage(
-                              hud,
-                              brain,
-                            ),
-                          ),
-                        ),
-
-                        // 2. BOTTOM-LEFT: LIVE HARDWARE & RESPONSE SPEED TELEMETRY
-                        Positioned(
-                          left: 14,
-                          bottom: 14,
-                          child: _buildLiveHardwareTelemetryPanel(hud, brain),
-                        ),
-
-                        // 3. TOP-LEFT: HOVER-STACK FILE MANAGER
-                        Positioned(
-                          left: 14,
-                          top: 14,
-                          child: FuturisticHoverFileStack(
-                            brain: brain,
-                            isDarkMode: widget.isDarkMode,
-                          ),
-                        ),
-
-                        // 4. RIGHT: LIVE VS CODE WINDOW (OPENS AUTOMATICALLY WHEN ULTRON CODES)
-                        AnimatedPositioned(
-                          duration: const Duration(milliseconds: 220),
-                          curve: Curves.easeOutCubic,
-                          top: 14,
-                          bottom: 14,
-                          right: brain.isVsCodeWindowOpen
-                              ? 14
-                              : -(editorWidth + 40),
-                          width: editorWidth,
-                          child: VsCodeLiveSurgicalWindow(
-                            brain: brain,
-                            isDarkMode: widget.isDarkMode,
-                          ),
-                        ),
-
-                        // 5. MINIMAL CHAT HISTORY ARCHIVE OVERLAY
-                        if (_showHistoryModal)
-                          Center(
-                            child: _buildChatHistoryModal(hud, brain),
-                          ),
-
-                        // 6. CONNECTIONS & GIT MODAL
-                        if (_showConnectionsModal)
-                          Center(
-                            child: ConnectionsHudWindow(
-                              brain: brain,
-                              onClose: () => setState(
-                                () => _showConnectionsModal = false,
+    return Scaffold(
+      backgroundColor: hud.bgDeep,
+      body: Stack(
+        children: [
+          // 1. Sredinska animirana 3D krogla v lastnem RepaintBoundary sloju
+          Positioned.fill(
+            child: IgnorePointer(
+              child: Center(
+                child: AnimatedSlide(
+                  duration: const Duration(milliseconds: 360),
+                  curve: Curves.easeOutCubic,
+                  offset: Offset(
+                    widget.brain.isVsCodeWindowOpen ? -0.14 : 0.0,
+                    widget.brain.messages.isEmpty ? -0.04 : -0.16,
+                  ),
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 320),
+                    opacity: widget.brain.messages.isEmpty ? 1.0 : 0.34,
+                    child: RepaintBoundary(
+                      child: SizedBox(
+                        width: 430,
+                        height: 430,
+                        child: ValueListenableBuilder<int>(
+                          valueListenable: _orbFrameTick,
+                          builder: (context, _, __) {
+                            return CustomPaint(
+                              painter: UltronWireframeOrbPainter(
+                                shellAngleY: _shellAngleY,
+                                ringAngleY: _ringAngleY,
+                                beamDriftPhase: _beamDriftPhase,
+                                pulseClock: _pulseClock,
+                                subtleKeystrokeRipple: _keystrokeRipple,
+                                params: _currentVisualParams,
+                                isDarkMode: widget.isDarkMode,
                               ),
-                            ),
-                          ),
-
-                        // 7. DECLARATIVE PLUGINS MODAL
-                        if (_showPluginsModal)
-                          Center(
-                            child: PluginsHudWindow(
-                              brain: brain,
-                              onClose: () => setState(
-                                () => _showPluginsModal = false,
-                              ),
-                            ),
-                          ),
-                      ],
+                            );
+                          },
+                        ),
+                      ),
                     ),
                   ),
-                ],
-              );
-            },
+                ),
+              ),
+            ),
           ),
-        );
-      },
-    );
-  }
 
-  //********************************************************************
-  // TOP HEADER BAR                                                    *
-  //********************************************************************
-  Widget _buildModernBlueHeader(UltronHudTheme hud, UltronBrainRouter brain) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: hud.bgPanel,
-        border: Border(bottom: BorderSide(color: hud.borderLine)),
-      ),
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 6,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        alignment: WrapAlignment.spaceBetween,
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
+          // 2. Glavna delovna postavitev (Zgornja vrstica + Sredinski klepet + Desni urejevalnik)
+          Column(
             children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: brain.isOllamaOnline
-                      ? hud.primaryPeriwinkle
-                      : hud.accentErrorRed,
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Text(
-                'ULTRON // NEURAL CONSCIOUSNESS',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 1.4,
-                  color: hud.textPrimary,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: ShapeDecoration(
-                  color: hud.bgInput,
-                  shape: hud.chamferShape(
-                    borderColor: brain.isOllamaOnline
-                        ? hud.primaryPeriwinkle.withValues(alpha: 0.65)
-                        : hud.accentWarningAmber,
-                  ),
-                ),
-                child: Text(
-                  'ENGINE: ${brain.activeLocalModel.toUpperCase()}  •  ${brain.memoryService.liveTokensPerSecond.toStringAsFixed(1)} TOK/S',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.8,
-                    color: hud.primaryPeriwinkle,
-                  ),
+              _buildMinimalTopBar(hud),
+              Expanded(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        children: [
+                          Expanded(child: _buildCenterConversationStage(hud)),
+                          _buildBottomPromptDeck(hud),
+                        ],
+                      ),
+                    ),
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 260),
+                      switchInCurve: Curves.easeOutCubic,
+                      switchOutCurve: Curves.easeInCubic,
+                      transitionBuilder: (child, anim) {
+                        return SizeTransition(
+                          axis: Axis.horizontal,
+                          sizeFactor: anim,
+                          child: FadeTransition(opacity: anim, child: child),
+                        );
+                      },
+                      child: widget.brain.isVsCodeWindowOpen
+                          ? VsCodeLiveSurgicalWindow(
+                              key: const ValueKey('vscode_open'),
+                              brain: widget.brain,
+                              isDarkMode: widget.isDarkMode,
+                            )
+                          : const SizedBox.shrink(
+                              key: ValueKey('vscode_closed')),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (brain.isOrbCompactTop)
-                HudActionButton(
-                  label: 'CENTER ORB',
-                  icon: Icons.filter_tilt_shift,
-                  onTap: brain.resetCenterStageToStandbyOrb,
+
+          // 3. Plavajoči PC File Manager zgoraj levo
+          Positioned(
+            top: 58,
+            left: 14,
+            child: FuturisticHoverFileStack(
+              brain: widget.brain,
+              isDarkMode: widget.isDarkMode,
+              onStatusToast: _showToast,
+            ),
+          ),
+
+          // 4. Minimalistično obvestilo (Toast)
+          if (_toastMessage != null)
+            Positioned(
+              top: 62,
+              right: 20,
+              child: TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0.0, end: 1.0),
+                duration: const Duration(milliseconds: 180),
+                builder: (context, val, child) => Opacity(
+                  opacity: val,
+                  child: Transform.translate(
+                    offset: Offset(0, (1 - val) * -8),
+                    child: child,
+                  ),
                 ),
-              const SizedBox(width: 6),
-              HudActionButton(
-                label: 'HISTORY (${brain.memoryService.savedChatArchives.length})',
-                icon: Icons.history_sharp,
-                onTap: () {
-                  brain.memoryService.refreshSavedChatArchives();
-                  setState(() {
-                    _showConnectionsModal = false;
-                    _showPluginsModal = false;
-                    _showHistoryModal = !_showHistoryModal;
-                  });
-                },
-              ),
-              const SizedBox(width: 6),
-              HudActionButton(
-                label: 'LEARN CODE',
-                icon: Icons.psychology_sharp,
-                accentColor: hud.accentSuccessGreen,
-                onTap: brain.learnFromProjectsAndChats,
-              ),
-              const SizedBox(width: 6),
-              HudActionButton(
-                label: 'GIT PULL',
-                icon: Icons.download_sharp,
-                onTap: brain.gitPull,
-              ),
-              const SizedBox(width: 6),
-              HudActionButton(
-                label: 'GIT PUSH',
-                icon: Icons.cloud_upload_sharp,
-                onTap: () => brain.gitCommitAndPush(
-                  commitMessage: 'feat: update via Ultron Qwen 14B',
-                  pushAfter: true,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: hud.bgPanel.alphaPct(0.95),
+                    borderRadius: BorderRadius.circular(7),
+                    border: Border.all(
+                        color: hud.primaryPeriwinkle.alphaPct(0.6)),
+                  ),
+                  child: Text(
+                    _toastMessage!,
+                    style: TextStyle(fontSize: 12, color: hud.textPrimary),
+                  ),
                 ),
               ),
-              const SizedBox(width: 6),
-              HudActionButton(
-                label:
-                    'PLUGINS (${brain.pluginService.installedPlugins.where((p) => p.isEnabled).length})',
-                icon: Icons.extension_sharp,
-                onTap: () => setState(() {
-                  _showConnectionsModal = false;
-                  _showHistoryModal = false;
-                  _showPluginsModal = !_showPluginsModal;
-                }),
-              ),
-              const SizedBox(width: 6),
-              HudActionButton(
-                label: brain.isVsCodeWindowOpen ? 'HIDE VS CODE' : 'VS CODE STUDIO',
-                icon: Icons.code_sharp,
-                isPrimaryAccent: brain.isVsCodeWindowOpen,
-                onTap: brain.toggleVsCodeWindow,
-              ),
-              const SizedBox(width: 6),
-              HudActionButton(
-                label: 'GITHUB & OLLAMA',
-                icon: Icons.hub_sharp,
-                onTap: () => setState(() {
-                  _showPluginsModal = false;
-                  _showHistoryModal = false;
-                  _showConnectionsModal = !_showConnectionsModal;
-                }),
-              ),
-              const SizedBox(width: 4),
-              IconButton(
-                visualDensity: VisualDensity.compact,
-                onPressed: widget.onToggleTheme,
-                icon: Icon(
-                  widget.isDarkMode
-                      ? Icons.dark_mode_sharp
-                      : Icons.light_mode_sharp,
-                  size: 16,
-                  color: hud.primaryPeriwinkle,
-                ),
-              ),
-            ],
+            ),
+
+          // 5. Modalna okna (Modeli/Learn/Povezave in Vtičniki)
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 200),
+            child: _showConnectionsModal
+                ? Container(
+                    key: const ValueKey('conn_modal'),
+                    color: Colors.black.alphaPct(0.48),
+                    padding: const EdgeInsets.all(24),
+                    child: ConnectionsHudWindow(
+                      brain: widget.brain,
+                      initialTab: _connectionsInitialTab,
+                      onClose: () =>
+                          setState(() => _showConnectionsModal = false),
+                    ),
+                  )
+                : _showPluginsModal
+                    ? Container(
+                        key: const ValueKey('plug_modal'),
+                        color: Colors.black.alphaPct(0.48),
+                        padding: const EdgeInsets.all(24),
+                        child: PluginsHudWindow(
+                          brain: widget.brain,
+                          onClose: () =>
+                              setState(() => _showPluginsModal = false),
+                        ),
+                      )
+                    : const SizedBox.shrink(),
           ),
         ],
       ),
     );
   }
 
-  //********************************************************************
-  // CENTER STAGE: SHRINKING TOP-CENTER ORB + BORDERLESS FLOATING TEXT *
-  //********************************************************************
-  Widget _buildCenterOrbAndBorderlessTextStage(
-    UltronHudTheme hud,
-    UltronBrainRouter brain,
-  ) {
-    final compact = brain.isOrbCompactTop;
-    final hasText =
-        brain.currentCenterResponseText.isNotEmpty || brain.isStreamingResponse;
-    final showCursor =
-        brain.isStreamingResponse && ((_pulseClock * 6).floor().isEven);
+  Widget _buildMinimalTopBar(UltronHudTheme hud) {
+    final mem = widget.brain.memoryService;
+    final models = widget.brain.discoveredModels;
 
-    return Column(
-      children: [
-        const SizedBox(height: 12),
+    return Container(
+      height: 48,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: hud.bgDeep.alphaPct(0.84),
+        border: Border(
+          bottom: BorderSide(color: hud.borderLine.alphaPct(0.65), width: 1.0),
+        ),
+      ),
+      child: Row(
+        children: [
+          // Identiteta in status povezave
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: widget.brain.isOllamaOnline
+                  ? hud.accentSuccessGreen
+                  : hud.accentWarningAmber,
+            ),
+          ),
+          const SizedBox(width: 9),
+          Text(
+            'ULTRON',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.6,
+              color: hud.textPrimary,
+            ),
+          ),
+          const SizedBox(width: 14),
 
-        // 1. SMOOTH ANIMATED ORB (SHRINKS & MOVES TO TOP-CENTER WHEN CHATTING)
-        AnimatedContainer(
-          duration: const Duration(milliseconds: 340),
-          curve: Curves.easeOutQuart,
-          width: compact ? 148 : 370,
-          height: compact ? 148 : 370,
-          child: RepaintBoundary(
-            child: CustomPaint(
-              painter: UltronWireframeOrbPainter(
-                shellAngleY: _shellAngleY,
-                ringAngleY: _ringAngleY,
-                beamDriftPhase: _beamDriftPhase,
-                pulseClock: _pulseClock,
-                subtleKeystrokeRipple: brain.subtleKeystrokePulse,
-                params: _currentParams,
+          // Hitri spustni izbirnik med vsemi zaznanimi lokalnimi LLM modeli
+          Container(
+            height: 31,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              color: hud.bgPanel.alphaPct(0.85),
+              borderRadius: BorderRadius.circular(7),
+              border: Border.all(color: hud.borderLine.alphaPct(0.85)),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: models.any(
+                        (m) => m.name == widget.brain.activeLocalModel)
+                    ? widget.brain.activeLocalModel
+                    : null,
+                hint: Text(
+                  widget.brain.activeLocalModel,
+                  style: TextStyle(fontSize: 12, color: hud.textPrimary),
+                ),
+                icon: Padding(
+                  padding: const EdgeInsets.only(left: 4),
+                  child: Icon(Icons.expand_more_rounded,
+                      size: 16, color: hud.textMuted),
+                ),
+                dropdownColor: hud.bgPanel,
+                borderRadius: BorderRadius.circular(8),
+                style: TextStyle(fontSize: 12, color: hud.textPrimary),
+                items: models.map((m) {
+                  return DropdownMenuItem<String>(
+                    value: m.name,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.memory_rounded,
+                          size: 13,
+                          color: m.isLiveInServer
+                              ? hud.primaryPeriwinkle
+                              : hud.textMuted,
+                        ),
+                        const SizedBox(width: 7),
+                        Text(m.name),
+                        if (m.sizeLabel.isNotEmpty) ...[
+                          const SizedBox(width: 6),
+                          Text(
+                            m.sizeLabel,
+                            style:
+                                TextStyle(fontSize: 10.5, color: hud.textMuted),
+                          ),
+                        ],
+                      ],
+                    ),
+                  );
+                }).toList(),
+                onChanged: (selected) {
+                  if (selected != null) {
+                    widget.brain.selectLocalOllamaModel(selected);
+                    _showToast('Aktiven model: $selected');
+                  }
+                },
               ),
             ),
           ),
-        ),
-
-        // Subtle floating status line directly under the orb (No box, no border!)
-        Padding(
-          padding: const EdgeInsets.only(top: 6, bottom: 8),
-          child: Text(
-            brain.statusBanner.toUpperCase(),
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1.5,
-              color: brain.lastErrorBanner != null
-                  ? hud.accentErrorRed
-                  : hud.primaryPeriwinkle.withValues(alpha: 0.75),
+          const SizedBox(width: 6),
+          IconButton(
+            tooltip: 'Ponovno skeniraj računalnik za lokalne LLM modele',
+            visualDensity: VisualDensity.compact,
+            icon: Icon(
+              Icons.refresh_rounded,
+              size: 16,
+              color: widget.brain.isScanningModels
+                  ? hud.primaryPeriwinkle
+                  : hud.textMuted,
             ),
-          ),
-        ),
-
-        // 2. BORDERLESS, BACKGROUNDLESS FLOATING RESPONSE TEXT IN THE MIDDLE
-        Expanded(
-          child: hasText
-              ? Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 740),
-                    child: SingleChildScrollView(
-                      controller: _centerTextScrollController,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 32,
-                        vertical: 12,
-                      ),
-                      child: TweenAnimationBuilder<double>(
-                        key: ValueKey<int>(
-                          brain.currentCenterResponseText.length ~/ 18,
-                        ),
-                        tween: Tween<double>(begin: 0.88, end: 1.0),
-                        duration: const Duration(milliseconds: 90),
-                        curve: Curves.easeOutCubic,
-                        builder: (context, opacity, child) {
-                          return Opacity(opacity: opacity, child: child);
-                        },
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (brain.currentPromptLabel.isNotEmpty) ...[
-                              Text(
-                                '> ${brain.currentPromptLabel}',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: 0.8,
-                                  color: hud.textMuted,
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                            ],
-                            SelectableText.rich(
-                              TextSpan(
-                                children: [
-                                  TextSpan(
-                                    text: brain.currentCenterResponseText,
-                                    style: TextStyle(
-                                      fontSize: 15,
-                                      height: 1.62,
-                                      fontWeight: FontWeight.w500,
-                                      letterSpacing: 0.25,
-                                      color: hud.textPrimary,
-                                      shadows: [
-                                        Shadow(
-                                          color: hud.secondaryVioletBloom
-                                              .withValues(alpha: 0.35),
-                                          blurRadius: 12,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  if (showCursor)
-                                    TextSpan(
-                                      text: ' ▋',
-                                      style: TextStyle(
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w900,
-                                        color: hud.primaryPeriwinkle,
-                                      ),
-                                    ),
-                                ],
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                )
-              : const SizedBox.shrink(),
-        ),
-
-        // 3. BOTTOM COMMAND INPUT BAR
-        Padding(
-          padding: const EdgeInsets.fromLTRB(295, 0, 16, 14),
-          child: HudBracketPanel(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-            borderColor: _promptFocusNode.hasFocus
-                ? hud.primaryPeriwinkle
-                : hud.borderLine,
-            child: Row(
-              children: [
-                Text(
-                  '>_',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w900,
-                    color: hud.primaryPeriwinkle,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: TextField(
-                    controller: _promptController,
-                    focusNode: _promptFocusNode,
-                    cursorColor: hud.primaryPeriwinkle,
-                    cursorWidth: 6,
-                    onChanged: brain.onUserKeystroke,
-                    onSubmitted: (v) {
-                      brain.executeUltronPrompt(v);
-                      _promptController.clear();
-                    },
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      color: hud.textPrimary,
-                    ),
-                    decoration: InputDecoration(
-                      hintText:
-                          'ASK ULTRON OR WRITE CODE TO VS CODE (/learn, /pull, /commit, /push, /done)...',
-                      hintStyle: TextStyle(
-                        fontSize: 10.5,
-                        letterSpacing: 0.6,
-                        color: hud.textMuted,
-                      ),
-                      isDense: true,
-                      border: InputBorder.none,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                HudActionButton(
-                  label: brain.isStreamingResponse ? 'STREAMING...' : 'EXECUTE',
-                  icon: Icons.bolt_sharp,
-                  isPrimaryAccent: true,
-                  accentColor: hud.primaryPeriwinkle,
-                  onTap: () {
-                    brain.executeUltronPrompt(_promptController.text);
-                    _promptController.clear();
+            onPressed: widget.brain.isScanningModels
+                ? null
+                : () async {
+                    await widget.brain.scanAllLocalLlms();
+                    _showToast(
+                        'Najdenih ${widget.brain.discoveredModels.length} lokalnih modelov');
                   },
-                ),
-              ],
-            ),
           ),
-        ),
-      ],
+
+          if (mem.liveTokensPerSecond > 0) ...[
+            const SizedBox(width: 8),
+            Text(
+              '${mem.liveTokensPerSecond.toStringAsFixed(1)} tok/s',
+              style: TextStyle(fontSize: 11, color: hud.textMuted),
+            ),
+          ],
+
+          const Spacer(),
+
+          // Dejansko delujoč gumb Learn + odpiranje trezorja znanja
+          ListenableBuilder(
+            listenable: mem,
+            builder: (context, _) {
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  HudActionButton(
+                    label: mem.isLearningNow ? 'Learning...' : 'Learn',
+                    icon: Icons.psychology_alt,
+                    compact: true,
+                    isPrimaryAccent: mem.isLearningNow,
+                    accentColor: hud.accentSuccessGreen,
+                    badgeText: '${mem.learnedEntries.length}',
+                    onTap: mem.isLearningNow
+                        ? null
+                        : () async {
+                            _showToast(
+                                'Analiziram kodo in pogovor z modelom ${widget.brain.activeLocalModel}...');
+                            final count =
+                                await widget.brain.triggerLearnPass();
+                            _showToast(
+                              count > 0
+                                  ? 'Ultron se je naučil $count novih vzorcev'
+                                  : 'Baza znanja je posodobljena (${mem.learnedEntries.length} pravil)',
+                            );
+                          },
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(width: 8),
+
+          HudActionButton(
+            label: 'Modeli & Vault',
+            icon: Icons.hub_outlined,
+            compact: true,
+            onTap: () => setState(() {
+              _connectionsInitialTab = 0;
+              _showConnectionsModal = true;
+              _showPluginsModal = false;
+            }),
+          ),
+          const SizedBox(width: 8),
+
+          HudActionButton(
+            label: 'Vtičniki',
+            icon: Icons.extension_outlined,
+            compact: true,
+            onTap: () => setState(() {
+              _showPluginsModal = true;
+              _showConnectionsModal = false;
+            }),
+          ),
+          const SizedBox(width: 8),
+
+          HudActionButton(
+            label: 'Koda',
+            icon: Icons.code,
+            compact: true,
+            isPrimaryAccent: widget.brain.isVsCodeWindowOpen,
+            onTap: widget.brain.toggleVsCodeWindow,
+          ),
+          const SizedBox(width: 6),
+
+          if (widget.brain.messages.isNotEmpty)
+            IconButton(
+              tooltip: 'Počisti trenutni pogovor',
+              visualDensity: VisualDensity.compact,
+              icon: Icon(Icons.delete_outline_rounded,
+                  size: 17, color: hud.textMuted),
+              onPressed: widget.brain.clearConversation,
+            ),
+
+          IconButton(
+            tooltip: widget.isDarkMode ? 'Svetli način' : 'Temni način',
+            visualDensity: VisualDensity.compact,
+            icon: Icon(
+              widget.isDarkMode
+                  ? Icons.light_mode_outlined
+                  : Icons.dark_mode_outlined,
+              size: 17,
+              color: hud.textMuted,
+            ),
+            onPressed: widget.onToggleTheme,
+          ),
+        ],
+      ),
     );
   }
 
-  //********************************************************************
-  // BOTTOM-LEFT: LIVE SPEED (TOK/S), CPU %, GPU %, VRAM & SYSTEM RAM  *
-  //********************************************************************
-  Widget _buildLiveHardwareTelemetryPanel(
-    UltronHudTheme hud,
-    UltronBrainRouter brain,
-  ) {
-    final mem = brain.memoryService;
-    final online = brain.isOllamaOnline;
-
-    return SizedBox(
-      width: 272,
-      child: HudBracketPanel(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+  Widget _buildCenterConversationStage(UltronHudTheme hud) {
+    if (widget.brain.messages.isEmpty) {
+      return Center(
+        child: IgnorePointer(
+          child: Padding(
+            padding: const EdgeInsets.only(top: 250),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  Icons.speed_sharp,
-                  size: 13,
-                  color: hud.primaryPeriwinkle,
-                ),
-                const SizedBox(width: 6),
                 Text(
-                  'LIVE SYSTEM & AI TELEMETRY',
+                  widget.brain.activeLocalModel,
                   style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.9,
-                    color: hud.primaryPeriwinkle,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: 0.6,
+                    color: hud.textMuted.alphaPct(0.85),
                   ),
                 ),
-                const Spacer(),
+                const SizedBox(height: 5),
                 Text(
-                  online ? 'LIVE' : 'OFFLINE',
+                  'Pripni poljubno datoteko (.docx, .pdf, kodo, sliko) ali vpiši ukaz',
                   style: TextStyle(
-                    fontSize: 9,
-                    fontWeight: FontWeight.bold,
-                    color: online
-                        ? hud.accentSuccessGreen
-                        : hud.accentWarningAmber,
+                    fontSize: 11.5,
+                    color: hud.textMuted.alphaPct(0.60),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 9),
+          ),
+        ),
+      );
+    }
 
-            // 1. RESPONSE SPEED (TOK/S)
-            _buildTelemetryBar(
-              hud: hud,
-              label: 'SPEED',
-              valueText: '${mem.liveTokensPerSecond.toStringAsFixed(1)} tok/s',
-              ratio: (mem.liveTokensPerSecond / 45.0).clamp(0.04, 1.0),
-              color: hud.primaryPeriwinkle,
-            ),
-            const SizedBox(height: 7),
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 790),
+        child: ListView.builder(
+          controller: _chatScrollCtrl,
+          padding: const EdgeInsets.fromLTRB(32, 62, 32, 18),
+          itemCount: widget.brain.messages.length,
+          itemBuilder: (context, index) {
+            final msg = widget.brain.messages[index];
+            final isUser = msg.role == 'user';
 
-            // 2. CPU & GPU POWER / LOAD
-            _buildTelemetryBar(
-              hud: hud,
-              label: 'CPU / GPU',
-              valueText:
-                  'CPU ${mem.liveCpuPercent.toStringAsFixed(0)}%  •  GPU ${mem.liveGpuPercent.toStringAsFixed(0)}%',
-              ratio: ((mem.liveCpuPercent + mem.liveGpuPercent) / 200.0)
-                  .clamp(0.05, 1.0),
-              color: hud.secondaryVioletBloom,
-            ),
-            const SizedBox(height: 7),
-
-            // 3. GPU VRAM (ARC B570 10GB)
-            _buildTelemetryBar(
-              hud: hud,
-              label: 'GPU VRAM',
-              valueText:
-                  '${mem.liveGpuVramUsedGb.toStringAsFixed(1)} / ${mem.liveGpuVramTotalGb.toStringAsFixed(1)} GiB',
-              ratio: mem.gpuVramRatio,
-              color: hud.accentSuccessGreen,
-            ),
-            const SizedBox(height: 7),
-
-            // 4. SYSTEM RAM (31.2 GiB)
-            _buildTelemetryBar(
-              hud: hud,
-              label: 'SYS RAM',
-              valueText:
-                  '${mem.liveSysRamUsedGb.toStringAsFixed(1)} / ${mem.liveSysRamTotalGb.toStringAsFixed(1)} GiB',
-              ratio: mem.sysRamRatio,
-              color: hud.primaryPeriwinkle,
-            ),
-          ],
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Align(
+                alignment:
+                    isUser ? Alignment.centerRight : Alignment.centerLeft,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 680),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 15, vertical: 11),
+                    decoration: BoxDecoration(
+                      color: isUser
+                          ? hud.primaryPeriwinkle.alphaPct(0.14)
+                          : hud.bgPanel.alphaPct(0.76),
+                      borderRadius: BorderRadius.circular(9),
+                      border: Border.all(
+                        color: isUser
+                            ? hud.primaryPeriwinkle.alphaPct(0.38)
+                            : hud.borderLine.alphaPct(0.70),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (msg.attachedFileNames.isNotEmpty) ...[
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            children: msg.attachedFileNames.map((fName) {
+                              return Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 7, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: hud.bgInput.alphaPct(0.85),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.attach_file,
+                                        size: 11,
+                                        color: hud.primaryPeriwinkle),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      fName,
+                                      style: TextStyle(
+                                          fontSize: 10.5,
+                                          color: hud.textMuted),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                          const SizedBox(height: 6),
+                        ],
+                        SelectableText(
+                          msg.content.isEmpty && msg.isStreaming
+                              ? '...'
+                              : msg.content,
+                          style: TextStyle(
+                            fontSize: 13.2,
+                            height: 1.52,
+                            color: hud.textPrimary,
+                          ),
+                        ),
+                        if (!isUser) ...[
+                          const SizedBox(height: 5),
+                          Text(
+                            msg.modelName,
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: hud.textMuted.alphaPct(0.68),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
         ),
       ),
     );
   }
 
-  Widget _buildTelemetryBar({
-    required UltronHudTheme hud,
-    required String label,
-    required String valueText,
-    required double ratio,
-    required Color color,
-  }) {
-    const segs = 16;
-    final lit = (ratio * segs).round();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(label, style: TextStyle(fontSize: 9, color: hud.textMuted)),
-            Text(
-              valueText,
-              style: TextStyle(
-                fontSize: 9.5,
-                fontWeight: FontWeight.bold,
-                color: hud.textPrimary,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 3),
-        Row(
-          children: List.generate(segs, (i) {
-            return Expanded(
-              child: Container(
-                height: 4,
-                margin: const EdgeInsets.only(right: 2),
-                color: i < lit ? color : hud.bgInput,
-              ),
-            );
-          }),
-        ),
-      ],
-    );
-  }
+  Widget _buildBottomPromptDeck(UltronHudTheme hud) {
+    final attachments = widget.brain.pendingAttachments;
 
-  //********************************************************************
-  // MINIMAL ARCHIVED CHAT HISTORY OVERLAY                             *
-  //********************************************************************
-  Widget _buildChatHistoryModal(UltronHudTheme hud, UltronBrainRouter brain) {
-    final archives = brain.memoryService.savedChatArchives;
-    return SizedBox(
-      width: 560,
-      height: 420,
-      child: HudBracketPanel(
-        padding: const EdgeInsets.all(16),
-        borderColor: hud.primaryPeriwinkle,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.history_sharp, size: 16, color: hud.primaryPeriwinkle),
-                const SizedBox(width: 8),
-                Text(
-                  'SAVED SESSIONS & CONVERSATION HISTORY',
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w800,
-                    color: hud.textPrimary,
-                  ),
-                ),
-                const Spacer(),
-                HudActionButton(
-                  label: 'NEW SESSION',
-                  icon: Icons.add,
-                  onTap: () {
-                    brain.startNewChatSession();
-                    setState(() => _showHistoryModal = false);
-                  },
-                ),
-                const SizedBox(width: 6),
-                HudActionButton(
-                  label: 'CLOSE',
-                  accentColor: hud.accentErrorRed,
-                  onTap: () => setState(() => _showHistoryModal = false),
-                ),
-              ],
-            ),
-            Divider(height: 18, color: hud.borderLine),
-            Expanded(
-              child: archives.isEmpty
-                  ? Center(
-                      child: Text(
-                        'No archived sessions yet. Type /done to save a session.',
-                        style: TextStyle(fontSize: 11, color: hud.textMuted),
-                      ),
-                    )
-                  : ListView.builder(
-                      itemCount: archives.length,
-                      itemBuilder: (context, i) {
-                        final arch = archives[i];
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: hud.bgInput,
-                            border: Border.all(color: hud.borderLine),
-                          ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      arch.fileName,
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.bold,
-                                        color: hud.textPrimary,
-                                      ),
-                                    ),
-                                    Text(
-                                      '${arch.modifiedDate} • ${arch.lineCount} lines',
-                                      style: TextStyle(
-                                        fontSize: 9.5,
-                                        color: hud.textMuted,
-                                      ),
-                                    ),
-                                  ],
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 790),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 4, 24, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Animirana vrstica pripetih datotek nad vnosnim poljem
+              AnimatedSize(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOutCubic,
+                child: attachments.isEmpty
+                    ? const SizedBox.shrink()
+                    : Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: attachments.map((att) {
+                            return Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 9, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: hud.bgPanel.alphaPct(0.92),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(
+                                  color:
+                                      hud.primaryPeriwinkle.alphaPct(0.50),
                                 ),
                               ),
-                              HudActionButton(
-                                label: 'LOAD',
-                                onTap: () {
-                                  brain.loadSavedChatArchiveIntoView(arch);
-                                  setState(() => _showHistoryModal = false);
-                                },
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.insert_drive_file_outlined,
+                                    size: 13,
+                                    color: hud.primaryPeriwinkle,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    '${att.name} (${att.kindLabel} · ${att.humanSize})',
+                                    style: TextStyle(
+                                      fontSize: 11.2,
+                                      color: hud.textPrimary,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  GestureDetector(
+                                    onTap: () => widget.brain
+                                        .removeAttachment(att.path),
+                                    child: Icon(
+                                      Icons.close_rounded,
+                                      size: 14,
+                                      color: hud.textMuted,
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
-                        );
-                      },
+                            );
+                          }).toList(),
+                        ),
+                      ),
+              ),
+
+              // Minimalistična ukazna vrstica
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: hud.bgPanel.alphaPct(0.90),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: hud.borderLine.alphaPct(0.90),
+                    width: 1.0,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.alphaPct(0.18),
+                      blurRadius: 18,
+                      offset: const Offset(0, 6),
                     ),
-            ),
-          ],
+                  ],
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Tooltip(
+                      message:
+                          'Pripni datoteke vseh vrst (.docx, .pdf, koda, slike, .zip...)',
+                      child: IconButton(
+                        visualDensity: VisualDensity.compact,
+                        icon: Icon(
+                          Icons.add_rounded,
+                          size: 20,
+                          color: hud.primaryPeriwinkle,
+                        ),
+                        onPressed: _pickAnyFiles,
+                      ),
+                    ),
+                    Expanded(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 140),
+                        child: TextField(
+                          controller: _promptCtrl,
+                          minLines: 1,
+                          maxLines: 5,
+                          textInputAction: TextInputAction.send,
+                          onSubmitted: (_) => _submitPrompt(),
+                          onChanged: (_) {
+                            _keystrokeRipple =
+                                (_keystrokeRipple + 0.35).clamp(0.0, 1.0);
+                            widget.brain.notifyUserTyping();
+                          },
+                          style: TextStyle(
+                            fontSize: 13.2,
+                            color: hud.textPrimary,
+                          ),
+                          decoration: InputDecoration(
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 9),
+                            hintText:
+                                'Vprašaj ${widget.brain.activeLocalModel} ali priloži vaje / kodo...',
+                            hintStyle: TextStyle(
+                              fontSize: 12.8,
+                              color: hud.textMuted.alphaPct(0.75),
+                            ),
+                            border: InputBorder.none,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    IconButton(
+                      tooltip:
+                          widget.brain.isGenerating ? 'Ustavi' : 'Pošlji',
+                      visualDensity: VisualDensity.compact,
+                      icon: Icon(
+                        widget.brain.isGenerating
+                            ? Icons.stop_rounded
+                            : Icons.send_rounded,
+                        size: 19,
+                        color: widget.brain.isGenerating
+                            ? hud.accentErrorRed
+                            : hud.primaryPeriwinkle,
+                      ),
+                      onPressed: widget.brain.isGenerating
+                          ? widget.brain.stopGeneration
+                          : _submitPrompt,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

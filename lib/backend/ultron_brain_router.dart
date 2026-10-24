@@ -1,1085 +1,1292 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/material.dart';
+import 'package:archive/archive.dart';
+import 'package:flutter/foundation.dart';
 import '../frontend/ultron_bubble_painter.dart';
 import 'memory_learning_usage_service.dart';
 import 'plugin_manager_service.dart';
 
-//**********************************************************************
-// ULTRON BRAIN ROUTER // LIVE VS CODE WRITER & CENTER STREAMER        *
-// - Streams conversational answers to the center borderless stage     *
-// - Automatically opens the VS Code window & live-writes code blocks  *
-//   directly into the active file buffer as Qwen 14B generates them   *
-//**********************************************************************
+//**************
+// Podatki o zaznanem lokalnem LLM modelu na računalniku *
+//**************
+class LocalLlmModelInfo {
+  final String name;
+  final String sizeLabel;
+  final String parameterSize;
+  final String quantization;
+  final String provider;
+  final String storageLocation;
+  final bool isLiveInServer;
 
-class DiffHunkProposal {
+  const LocalLlmModelInfo({
+    required this.name,
+    this.sizeLabel = '',
+    this.parameterSize = '',
+    this.quantization = '',
+    this.provider = 'Ollama',
+    this.storageLocation = '',
+    this.isLiveInServer = true,
+  });
+
+  String get displaySubtitle {
+    final parts = <String>[
+      if (parameterSize.isNotEmpty) parameterSize,
+      if (quantization.isNotEmpty) quantization,
+      if (sizeLabel.isNotEmpty) sizeLabel,
+      if (!isLiveInServer && storageLocation.isNotEmpty)
+        'Disk: $storageLocation',
+    ];
+    return parts.isEmpty ? provider : parts.join(' · ');
+  }
+}
+
+//**************
+// Pripravljena datoteka poljubnega tipa za pošiljanje v kontekst LLM-ja *
+//**************
+class AttachedFilePayload {
+  final String path;
+  final String name;
+  final String extension;
+  final int sizeBytes;
+  final String extractedText;
+  final String? base64Image;
+  final String kindLabel;
+
+  const AttachedFilePayload({
+    required this.path,
+    required this.name,
+    required this.extension,
+    required this.sizeBytes,
+    required this.extractedText,
+    this.base64Image,
+    required this.kindLabel,
+  });
+
+  String get humanSize {
+    if (sizeBytes < 1024) return '$sizeBytes B';
+    if (sizeBytes < 1024 * 1024) {
+      return '${(sizeBytes / 1024).toStringAsFixed(1)} KB';
+    }
+    return '${(sizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+}
+
+//**************
+// Sporočilo v osrednjem klepetu Ultrona *
+//**************
+class ChatMessageItem {
   final String id;
-  final String filePath;
-  final int startLine;
-  final List<String> originalLines;
-  final List<String> proposedLines;
-  final String description;
-  bool isAccepted;
-  bool isRejected;
+  final String role;
+  String content;
+  final String modelName;
+  final List<String> attachedFileNames;
+  final DateTime timestamp;
+  final bool isStreaming;
 
-  DiffHunkProposal({
+  ChatMessageItem({
     required this.id,
-    required this.filePath,
-    required this.startLine,
-    required this.originalLines,
-    required this.proposedLines,
-    required this.description,
-    this.isAccepted = false,
-    this.isRejected = false,
+    required this.role,
+    required this.content,
+    required this.modelName,
+    this.attachedFileNames = const [],
+    required this.timestamp,
+    this.isStreaming = false,
   });
 }
 
+//**************
+// Zaznana težava v kodi za kirurški popravek v vgrajenem urejevalniku *
+//**************
+class LiveCodeIssue {
+  final String id;
+  final int lineNumber;
+  final String description;
+  final String brokenLine;
+  final String surgicalFixLine;
+  bool isFixed;
+
+  LiveCodeIssue({
+    required this.id,
+    required this.lineNumber,
+    required this.description,
+    required this.brokenLine,
+    required this.surgicalFixLine,
+    this.isFixed = false,
+  });
+}
+
+//**************
+// Zavihek odprte datoteke v vgrajenem urejevalniku kode *
+//**************
 class OpenEditorTab {
   final String filePath;
+  final String fileName;
   List<String> lines;
+  List<String>? previousLinesSnapshot;
   bool isDirty;
-  String gitStatusBadge;
-  String? backupSnapshotPath;
 
   OpenEditorTab({
     required this.filePath,
+    required this.fileName,
     required this.lines,
+    this.previousLinesSnapshot,
     this.isDirty = false,
-    this.gitStatusBadge = 'CLEAN',
-    this.backupSnapshotPath,
   });
+}
 
-  String get fileName => filePath.split(Platform.pathSeparator).last;
+class DiffHunkProposal {
+  final String id;
+  final int startLine;
+  final List<String> oldLines;
+  final List<String> newLines;
+
+  const DiffHunkProposal({
+    required this.id,
+    required this.startLine,
+    required this.oldLines,
+    required this.newLines,
+  });
 }
 
 class GitHubRepoEntry {
   final String name;
   final String fullName;
-  final String description;
   final String cloneUrl;
-  final String defaultBranch;
-  bool isCloned;
-  String? localPath;
+  final String htmlUrl;
+  final bool isPrivate;
 
-  GitHubRepoEntry({
+  const GitHubRepoEntry({
     required this.name,
     required this.fullName,
-    required this.description,
     required this.cloneUrl,
-    required this.defaultBranch,
-    this.isCloned = false,
-    this.localPath,
+    required this.htmlUrl,
+    this.isPrivate = false,
   });
 }
 
+class TriageDecision {
+  final String selectedModel;
+  final String reason;
+
+  const TriageDecision({
+    required this.selectedModel,
+    required this.reason,
+  });
+}
+
+//**************
+// Osrednji možganski usmerjevalnik Ultrona: *
+// - Skenira celoten PC za lokalne LLM modele (Ollama API, CLI, vsi diski, LM Studio) *
+// - Ekstrahira vsebino vseh vrst datotek (.docx, .pdf, .xlsx, .pptx, slike, koda, binarne) *
+// - Izvaja pretakanje (streaming) odgovorov z nastavljivimi GPU sloji (num_gpu) *
+// - Povezuje File Manager, Learn sistem in vgrajeni urejevalnik kode *
+//**************
 class UltronBrainRouter extends ChangeNotifier {
   final MemoryLearningUsageService memoryService = MemoryLearningUsageService();
   final PluginManagerService pluginService = PluginManagerService();
 
-  String ollamaBaseUrl = 'http://127.0.0.1:11434';
-  String activeLocalModel = 'qwen2.5-coder:14b';
-  List<String> installedOllamaModels = ['qwen2.5-coder:14b'];
-
-  final String githubWebUrl = 'https://github.com/';
-  final String vsCodeDesktopPath = '/usr/share/applications/code-oss.desktop';
-
-  bool isOllamaOnline = false;
-  bool isGithubConnected = false;
-  bool isStreamingResponse = false;
-
-  String githubUsername = 'MPHalozan1';
-  int githubRateLimitRemaining = 60;
-  int githubRateLimitTotal = 60;
-  String? githubDeviceUserCode;
-  String currentGitBranch = 'main';
-  String lastGitCommandOutput = 'Git ready.';
-
-  // Orb & Center Stage State
+  // Stanje krogle in pretakanja
   OrbState orbState = OrbState.standby;
-  bool isOrbCompactTop = false; // Shrinks orb to top-center when chatting!
-  double subtleKeystrokePulse = 0.0;
-  Timer? _errorResetTimer;
+  bool isGenerating = false;
+  bool isScanningModels = false;
+  HttpClient? _activeStreamClient;
 
-  String statusBanner = 'ULTRON NEURAL CORE READY';
-  String? lastErrorBanner;
-  String currentPromptLabel = '';
-  String currentCenterResponseText = '';
+  // Nastavitve lokalnega LLM strežnika in VRAM slojev
+  String ollamaBaseUrl = 'http://127.0.0.1:11434';
+  bool isOllamaOnline = false;
+  String activeLocalModel = 'gemma2-gpu';
+  int customNumGpuLayers = 0; // 0 = samodejno (ali Modelfile), >0 = ročna vsilitev
+  int contextWindowTokens = 8192;
+  String? detectedDiskModelsFolder;
 
-  final List<ChatTurnRecord> chatHistory = [];
-  final List<String> modifiedFilesInSession = [];
+  final List<LocalLlmModelInfo> discoveredModels = [];
+  List<String> get installedOllamaModels =>
+      discoveredModels.map((m) => m.name).toList();
 
-  // Workspace & VS Code Live Writer State
-  late final String userHome;
-  late final String desktopProjectsDir;
-  String workspaceRootPath = '';
-  String? pinnedFolderPath;
-  String? pinnedFilePath;
-  String searchQuery = '';
-  List<FileSystemEntity> currentFolderEntities = [];
-  List<GitHubRepoEntry> githubRepos = [];
+  // Pogovor in univerzalne priponke
+  final List<ChatMessageItem> messages = [];
+  final List<AttachedFilePayload> pendingAttachments = [];
+  final List<ChatTurnRecord> _sessionHistory = [];
 
-  bool isResponseWindowOpen = false; // History drawer toggle
+  // Brskalnik datotek po celotnem računalniku
+  String currentBrowserDirectory = Directory.current.path;
+  List<String> availableSystemRoots = [];
+
+  // Vgrajeni VS Code kirurški urejevalnik
   bool isVsCodeWindowOpen = false;
-  bool autoApplyEdits = true; // Enabled so Ultron writes directly to VS Code!
-  int activeStreamingLineInEditor = -1;
-
+  bool isStreamingCode = false;
+  String activeExecutionModel = 'gemma2-gpu';
+  int activeCursorLine = 0;
   final List<OpenEditorTab> openTabs = [];
   int activeTabIndex = 0;
+  final List<LiveCodeIssue> detectedIssues = [];
   final List<DiffHunkProposal> pendingDiffHunks = [];
+
+  // GitHub povezava
+  String githubUsername = '';
+  String githubToken = '';
+  bool isGithubConnected = false;
+  bool isFetchingRepos = false;
+  int githubRateLimitRemaining = 60;
+  int githubRateLimitTotal = 60;
+  final List<GitHubRepoEntry> githubRepos = [];
+  bool isJulesConnected = false;
+
+  late File _routerConfigFile;
 
   OpenEditorTab? get activeTab =>
       (activeTabIndex >= 0 && activeTabIndex < openTabs.length)
           ? openTabs[activeTabIndex]
           : null;
 
-  UltronBrainRouter() {
-    userHome = Platform.environment['HOME'] ??
-        Platform.environment['USERPROFILE'] ??
-        '.';
-    desktopProjectsDir = '$userHome/Desktop/projects';
-    workspaceRootPath = Directory.current.path;
-    _bootstrap();
-  }
+  String get activeFilePath => activeTab?.filePath ?? '';
+  List<String> get activeFileLines => activeTab?.lines ?? const [];
 
-  Future<void> _bootstrap() async {
+  Future<void> initialize() async {
     await memoryService.initialize();
-    pluginService.initialize(memoryService.pluginsDir);
-    memoryService.addListener(notifyListeners);
-    pluginService.addListener(notifyListeners);
+    await pluginService.initialize();
 
-    refreshDirectoryEntities(workspaceRootPath);
-    await _detectGitBranch();
-    await checkLocalOllamaHealth();
-    await _checkSavedGithubAuth();
-  }
-
-  void setInputFocus(bool hasFocus) {
-    if (orbState == OrbState.thinking ||
-        orbState == OrbState.answering ||
-        orbState == OrbState.error) {
-      return;
+    final memDir = Directory(
+        '${Directory.current.path}${Platform.pathSeparator}ultron_memory');
+    if (!await memDir.exists()) {
+      await memDir.create(recursive: true);
     }
-    orbState = hasFocus ? OrbState.listening : OrbState.standby;
-    notifyListeners();
+    _routerConfigFile =
+        File('${memDir.path}${Platform.pathSeparator}router_config.json');
+
+    await _loadRouterConfig();
+    await refreshSystemRoots();
+    await scanAllLocalLlms();
   }
 
-  void onUserKeystroke(String text) {
-    subtleKeystrokePulse = 1.0;
-    if (orbState != OrbState.thinking &&
-        orbState != OrbState.answering &&
-        orbState != OrbState.error) {
-      orbState = OrbState.listening;
-    }
-    notifyListeners();
-  }
-
-  void decayKeystrokeRipple(double dt) {
-    if (subtleKeystrokePulse > 0.0) {
-      subtleKeystrokePulse = (subtleKeystrokePulse - dt * 3.5).clamp(0.0, 1.0);
-    }
-  }
-
-  void resetCenterStageToStandbyOrb() {
-    isOrbCompactTop = false;
-    currentPromptLabel = '';
-    currentCenterResponseText = '';
-    orbState = OrbState.standby;
-    notifyListeners();
-  }
-
-  void triggerErrorState(String clearReason) {
-    lastErrorBanner = clearReason;
-    statusBanner = 'ERROR // $clearReason';
-    orbState = OrbState.error;
-    _errorResetTimer?.cancel();
-    _errorResetTimer = Timer(const Duration(milliseconds: 1200), () {
-      orbState = OrbState.standby;
-      notifyListeners();
-    });
-    notifyListeners();
-  }
-
-  void _showToastBanner(String message) {
-    lastErrorBanner = null;
-    statusBanner = message;
-    notifyListeners();
-  }
-
-  //********************************************************************
-  // 1. LOCAL OLLAMA HEALTH & MODEL DISCOVERY                          *
-  //********************************************************************
-  Future<bool> checkLocalOllamaHealth() async {
+  Future<void> _loadRouterConfig() async {
+    if (!await _routerConfigFile.exists()) return;
     try {
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 3);
-      final req = await client.getUrl(Uri.parse('$ollamaBaseUrl/api/tags'));
-      final resp = await req.close();
-      final body = await resp.transform(utf8.decoder).join();
+      final map = jsonDecode(await _routerConfigFile.readAsString());
+      if (map is Map<String, dynamic>) {
+        ollamaBaseUrl =
+            map['ollamaBaseUrl']?.toString() ?? 'http://127.0.0.1:11434';
+        activeLocalModel = map['activeLocalModel']?.toString() ?? 'gemma2-gpu';
+        customNumGpuLayers = (map['customNumGpuLayers'] as num?)?.toInt() ?? 0;
+        contextWindowTokens =
+            (map['contextWindowTokens'] as num?)?.toInt() ?? 8192;
+        githubToken = map['githubToken']?.toString() ?? '';
+        githubUsername = map['githubUsername']?.toString() ?? '';
+        isGithubConnected = githubToken.isNotEmpty;
+        final savedDir = map['currentBrowserDirectory']?.toString();
+        if (savedDir != null && Directory(savedDir).existsSync()) {
+          currentBrowserDirectory = savedDir;
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> saveRouterConfig() async {
+    try {
+      await _routerConfigFile.writeAsString(
+        const JsonEncoder.withIndent('  ').convert({
+          'ollamaBaseUrl': ollamaBaseUrl,
+          'activeLocalModel': activeLocalModel,
+          'customNumGpuLayers': customNumGpuLayers,
+          'contextWindowTokens': contextWindowTokens,
+          'githubToken': githubToken,
+          'githubUsername': githubUsername,
+          'currentBrowserDirectory': currentBrowserDirectory,
+        }),
+      );
+    } catch (_) {}
+  }
+
+  //**************
+  // Zazna vse korenske diske na računalniku (C:\, D:\ itd. na Windowsih ali / na Linuxu) *
+  //**************
+  Future<void> refreshSystemRoots() async {
+    final roots = <String>[];
+    if (Platform.isWindows) {
+      for (int code = 67; code <= 90; code++) {
+        // Preverimo črke diskov od C do Z
+        final drive = '${String.fromCharCode(code)}:\\';
+        try {
+          if (Directory(drive).existsSync()) {
+            roots.add(drive);
+          }
+        } catch (_) {}
+      }
+      if (roots.isEmpty) roots.add('C:\\');
+    } else {
+      roots.add('/');
+      final home = Platform.environment['HOME'];
+      if (home != null && Directory(home).existsSync()) {
+        roots.add(home);
+      }
+      if (Directory('/mnt').existsSync()) roots.add('/mnt');
+      if (Directory('/run/media').existsSync()) roots.add('/run/media');
+    }
+    availableSystemRoots = roots;
+    notifyListeners();
+  }
+
+  void setCurrentBrowserDirectory(String path) {
+    final dir = Directory(path);
+    if (!dir.existsSync()) return;
+    currentBrowserDirectory = dir.path;
+    saveRouterConfig();
+    notifyListeners();
+  }
+
+  //**************
+  // Celovit skener računalnika za lokalne LLM modele: *
+  // 1. Preveri aktivni Ollama API (/api/tags) *
+  // 2. Preveri ukazno vrstico (ollama list) *
+  // 3. Preišče manifeste na vseh diskih (npr. D:\OllamaModels in .ollama) *
+  // 4. Preveri morebitni lokalni LM Studio strežnik (vrata 1234) *
+  //**************
+  Future<void> scanAllLocalLlms() async {
+    if (isScanningModels) return;
+    isScanningModels = true;
+    notifyListeners();
+
+    final foundMap = <String, LocalLlmModelInfo>{};
+    bool serverReachable = false;
+
+    // 1. Preverimo Ollama HTTP API
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(milliseconds: 2200);
+    try {
+      final cleanBase = ollamaBaseUrl.endsWith('/')
+          ? ollamaBaseUrl.substring(0, ollamaBaseUrl.length - 1)
+          : ollamaBaseUrl;
+      final req = await client.getUrl(Uri.parse('$cleanBase/api/tags'));
+      final res = await req.close().timeout(const Duration(seconds: 3));
+      if (res.statusCode == 200) {
+        serverReachable = true;
+        final body = await res.transform(utf8.decoder).join();
+        final data = jsonDecode(body);
+        final list = (data['models'] as List<dynamic>?) ?? const [];
+        for (final item in list) {
+          if (item is! Map<String, dynamic>) continue;
+          final name = item['name']?.toString() ?? '';
+          if (name.isEmpty) continue;
+          final cleanName =
+              name.endsWith(':latest') ? name.substring(0, name.length - 7) : name;
+          final sizeBytes = (item['size'] as num?)?.toInt() ?? 0;
+          final details =
+              (item['details'] as Map<String, dynamic>?) ?? const {};
+
+          foundMap[cleanName] = LocalLlmModelInfo(
+            name: name.endsWith(':latest') && !name.contains(':') ? cleanName : name,
+            sizeLabel: sizeBytes > 0
+                ? '${(sizeBytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB'
+                : '',
+            parameterSize: details['parameter_size']?.toString() ?? '',
+            quantization: details['quantization_level']?.toString() ?? '',
+            provider: 'Ollama',
+            isLiveInServer: true,
+          );
+        }
+      }
+    } catch (_) {
+      serverReachable = false;
+    } finally {
       client.close();
+    }
 
-      if (resp.statusCode == 200) {
-        final map = jsonDecode(body) as Map<String, dynamic>;
-        final models = (map['models'] as List<dynamic>? ?? []);
-        final names = models
-            .map((m) => ((m as Map<String, dynamic>)['name'] ?? '').toString())
-            .where((n) => n.isNotEmpty)
-            .toList();
-
-        if (names.isNotEmpty) {
-          installedOllamaModels = names;
-          if (names.any((n) => n.contains('qwen2.5-coder:14b'))) {
-            activeLocalModel =
-                names.firstWhere((n) => n.contains('qwen2.5-coder:14b'));
-          } else if (!names.contains(activeLocalModel)) {
-            activeLocalModel = names.first;
+    // 2. Preverimo CLI ukaz `ollama list`
+    try {
+      final cliRes = await Process.run(
+        'ollama',
+        ['list'],
+        runInShell: true,
+      ).timeout(const Duration(seconds: 3));
+      if (cliRes.exitCode == 0) {
+        final lines = cliRes.stdout.toString().split('\n');
+        for (int i = 1; i < lines.length; i++) {
+          final line = lines[i].trim();
+          if (line.isEmpty) continue;
+          final cols = line.split(RegExp(r'\s{2,}'));
+          if (cols.isNotEmpty) {
+            final rawName = cols[0].trim();
+            final key = rawName.endsWith(':latest')
+                ? rawName.substring(0, rawName.length - 7)
+                : rawName;
+            if (!foundMap.containsKey(key) && !foundMap.containsKey(rawName)) {
+              foundMap[key] = LocalLlmModelInfo(
+                name: rawName,
+                sizeLabel: cols.length >= 3 ? cols[2].trim() : '',
+                provider: 'Ollama CLI',
+                isLiveInServer: serverReachable,
+              );
+            }
           }
         }
-        isOllamaOnline = true;
-        _syncConnectionsMetadataFile();
-        _showToastBanner('ONLINE // ${activeLocalModel.toUpperCase()} READY');
-        return true;
       }
     } catch (_) {}
 
-    isOllamaOnline = false;
-    _showToastBanner('OLLAMA OFFLINE // CHECK $ollamaBaseUrl');
-    return false;
+    // 3. Skeniramo mape z manifesti na vseh diskih (npr. D:\OllamaModels)
+    final candidateModelDirs = <String>{};
+    final envModels = Platform.environment['OLLAMA_MODELS'];
+    if (envModels != null && envModels.isNotEmpty) {
+      candidateModelDirs.add(envModels);
+    }
+    final userProfile = Platform.environment['USERPROFILE'] ??
+        Platform.environment['HOME'] ??
+        '';
+    if (userProfile.isNotEmpty) {
+      candidateModelDirs.add(
+          '$userProfile${Platform.pathSeparator}.ollama${Platform.pathSeparator}models');
+    }
+    if (Platform.isWindows) {
+      for (final root in availableSystemRoots) {
+        candidateModelDirs.add('${root}OllamaModels');
+        candidateModelDirs.add('${root}Ollama${Platform.pathSeparator}models');
+      }
+    } else {
+      candidateModelDirs.add('/usr/share/ollama/.ollama/models');
+    }
+
+    for (final baseModelsPath in candidateModelDirs) {
+      final manifestsRoot = Directory(
+          '$baseModelsPath${Platform.pathSeparator}manifests');
+      if (!manifestsRoot.existsSync()) continue;
+      detectedDiskModelsFolder ??= baseModelsPath;
+
+      try {
+        await for (final entity
+            in manifestsRoot.list(recursive: true, followLinks: false)) {
+          if (entity is! File) continue;
+          // Pot manifesta se običajno konča z .../library/<model>/<tag>
+          final rel = entity.path
+              .substring(manifestsRoot.path.length)
+              .replaceAll('\\', '/');
+          final segs = rel.split('/').where((s) => s.isNotEmpty).toList();
+          if (segs.length >= 2) {
+            final modelName = segs[segs.length - 2];
+            final tag = segs.last;
+            final fullTag = tag == 'latest' ? modelName : '$modelName:$tag';
+
+            final alreadyPresent = foundMap.values.any((m) =>
+                m.name == fullTag ||
+                m.name == '$modelName:$tag' ||
+                (tag == 'latest' && m.name == '$modelName:latest'));
+
+            if (!alreadyPresent) {
+              foundMap[fullTag] = LocalLlmModelInfo(
+                name: fullTag,
+                provider: 'Ollama Disk',
+                storageLocation: baseModelsPath,
+                isLiveInServer: serverReachable &&
+                    (envModels?.toLowerCase() == baseModelsPath.toLowerCase()),
+              );
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 4. Hitri pregled za LM Studio lokalni strežnik (127.0.0.1:1234)
+    final lmClient = HttpClient()
+      ..connectionTimeout = const Duration(milliseconds: 650);
+    try {
+      final req = await lmClient
+          .getUrl(Uri.parse('http://127.0.0.1:1234/v1/models'));
+      final res =
+          await req.close().timeout(const Duration(milliseconds: 900));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(await res.transform(utf8.decoder).join());
+        final items = (data['data'] as List<dynamic>?) ?? const [];
+        for (final m in items) {
+          if (m is Map<String, dynamic>) {
+            final id = m['id']?.toString() ?? '';
+            if (id.isNotEmpty) {
+              foundMap['lmstudio:$id'] = LocalLlmModelInfo(
+                name: 'lmstudio:$id',
+                provider: 'LM Studio',
+                isLiveInServer: true,
+              );
+            }
+          }
+        }
+      }
+    } catch (_) {
+    } finally {
+      lmClient.close();
+    }
+
+    isOllamaOnline = serverReachable;
+    discoveredModels
+      ..clear()
+      ..addAll(foundMap.values);
+
+    // Pametna privzeta izbira, če trenutni model ne obstaja na tej napravi
+    if (discoveredModels.isNotEmpty) {
+      final exactMatch =
+          discoveredModels.any((m) => m.name == activeLocalModel);
+      if (!exactMatch) {
+        const preferredOrder = [
+          'gemma2-gpu',
+          'gemma2-gpu:latest',
+          'qwen2.5-coder:14b',
+          'gemma2:9b',
+          'qwen2.5-coder:7b',
+        ];
+        String? chosen;
+        for (final pref in preferredOrder) {
+          final hit = discoveredModels.where((m) => m.name == pref);
+          if (hit.isNotEmpty) {
+            chosen = hit.first.name;
+            break;
+          }
+        }
+        activeLocalModel = chosen ?? discoveredModels.first.name;
+        activeExecutionModel = activeLocalModel;
+        await saveRouterConfig();
+      }
+    }
+
+    isScanningModels = false;
+    notifyListeners();
+  }
+
+  // Ohranimo združljivost za obstoječe klice preverjanja zdravja
+  Future<void> checkLocalOllamaHealth({String? newBaseUrl}) async {
+    if (newBaseUrl != null && newBaseUrl.trim().isNotEmpty) {
+      ollamaBaseUrl = newBaseUrl.trim();
+      await saveRouterConfig();
+    }
+    await scanAllLocalLlms();
+  }
+
+  // Zažene lokalni Ollama strežnik z izbrano mapo modelov (npr. D:\OllamaModels)
+  Future<void> startLocalOllamaServer({String? customModelsPath}) async {
+    try {
+      final env = Map<String, String>.from(Platform.environment);
+      final folder = customModelsPath ?? detectedDiskModelsFolder;
+      if (folder != null && folder.isNotEmpty) {
+        env['OLLAMA_MODELS'] = folder;
+      }
+      await Process.start(
+        'ollama',
+        ['serve'],
+        environment: env,
+        mode: ProcessStartMode.detached,
+        runInShell: true,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 1400));
+      await scanAllLocalLlms();
+    } catch (e) {
+      debugPrint('Zagon Ollama strežnika ni uspel: $e');
+    }
   }
 
   void selectLocalOllamaModel(String modelName) {
     activeLocalModel = modelName;
-    _syncConnectionsMetadataFile();
-    _showToastBanner('MODEL: ${modelName.toUpperCase()}');
+    activeExecutionModel = modelName;
+    saveRouterConfig();
+    notifyListeners();
   }
 
-  //********************************************************************
-  // 2. SNAPPY CENTER STREAMING + LIVE VS CODE WINDOW CODE WRITING     *
-  //********************************************************************
-  Future<void> executeUltronPrompt(String rawInput) async {
-    final input = rawInput.trim();
-    if (input.isEmpty || isStreamingResponse) return;
+  void updateGpuSettings({int? numGpu, int? numCtx}) {
+    if (numGpu != null) customNumGpuLayers = numGpu;
+    if (numCtx != null) contextWindowTokens = numCtx;
+    saveRouterConfig();
+    notifyListeners();
+  }
 
-    // Move Orb to top-center so Ultron's borderless response floats in the middle!
-    isOrbCompactTop = true;
-    currentPromptLabel = input;
-
-    if (input.toLowerCase() == '/learn status') {
-      currentCenterResponseText = memoryService.getLearnStatusSummary();
-      _showToastBanner('DISPLAYED /learn STATUS');
-      return;
+  void notifyUserTyping() {
+    if (!isGenerating && orbState != OrbState.listening) {
+      orbState = OrbState.listening;
+      notifyListeners();
+      Future<void>.delayed(const Duration(milliseconds: 1200), () {
+        if (!isGenerating && orbState == OrbState.listening) {
+          orbState = OrbState.standby;
+          notifyListeners();
+        }
+      });
     }
+  }
 
-    if (input.toLowerCase() == '/learn reset') {
-      memoryService.resetLearnedNotes();
-      currentCenterResponseText =
-          'Learned notes reset to baseline in ultron_memory/learned/.';
-      _showToastBanner('LEARNED NOTES RESET');
-      return;
+  //**************
+  // Univerzalni bralnik datotek vseh vrst: *
+  // Podpira .docx, .odt, .xlsx, .pptx, .pdf, .zip, slike, izvorno kodo in binarne datoteke *
+  //**************
+  Future<bool> attachFileFromPath(String filePath) async {
+    try {
+      final file = File(filePath);
+      if (!await file.exists()) return false;
+
+      if (pendingAttachments.any((a) => a.path == file.path)) {
+        return true;
+      }
+
+      final stat = await file.stat();
+      final name = _basename(file.path);
+      final ext = _extension(file.path);
+      final payload = await _extractAnyFile(file, name, ext, stat.size);
+
+      pendingAttachments.add(payload);
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint('Napaka pri pripenjanju datoteke: $e');
+      return false;
     }
+  }
 
-    if (input.toLowerCase() == '/learn') {
-      await learnFromProjectsAndChats();
-      return;
-    }
+  void removeAttachment(String path) {
+    pendingAttachments.removeWhere((a) => a.path == path);
+    notifyListeners();
+  }
 
-    if (input.toLowerCase() == '/pull') {
-      await gitPull();
-      return;
-    }
+  void clearAttachments() {
+    pendingAttachments.clear();
+    notifyListeners();
+  }
 
-    if (input.toLowerCase().startsWith('/commit')) {
-      final msg = input.length > 7
-          ? input.substring(7).trim()
-          : 'feat: update via Ultron Neural Core';
-      await gitCommitAndPush(commitMessage: msg, pushAfter: false);
-      return;
-    }
+  Future<AttachedFilePayload> _extractAnyFile(
+    File file,
+    String name,
+    String ext,
+    int sizeBytes,
+  ) async {
+    const imageExts = {'.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'};
+    const officeZipExts = {'.docx', '.odt', '.xlsx', '.pptx'};
 
-    if (input.toLowerCase() == '/push') {
-      await gitPush();
-      return;
-    }
-
-    if (memoryService.isDoneTriggerPhrase(input)) {
-      final savedName = await memoryService.saveConversationToDisk(
-        turns: chatHistory,
-        modifiedFiles: modifiedFilesInSession,
-        shortTitleSlug:
-            chatHistory.isNotEmpty ? chatHistory.first.text.takeWords(4) : 'session',
+    // 1. Slike (za multimodalne modele + metapodatki)
+    if (imageExts.contains(ext)) {
+      final bytes = await file.readAsBytes();
+      final b64 = base64Encode(bytes);
+      return AttachedFilePayload(
+        path: file.path,
+        name: name,
+        extension: ext,
+        sizeBytes: sizeBytes,
+        extractedText:
+            '[Priložena slika: $name (${(sizeBytes / 1024).toStringAsFixed(1)} KB)]',
+        base64Image: b64,
+        kindLabel: 'Slika',
       );
-      currentCenterResponseText =
-          'Session archived to ultron_memory/chats/$savedName';
-      _showToastBanner('CHAT SAVED // $savedName');
-      return;
     }
 
-    _appendTurn(
-      sender: 'USER',
-      model: activeLocalModel,
-      level: 'LOCAL',
-      text: input,
+    // 2. Pisarniški dokumenti (.docx Word, .odt, .xlsx, .pptx)
+    if (officeZipExts.contains(ext)) {
+      final bytes = await file.readAsBytes();
+      final extracted = _extractOfficeDocumentText(bytes, ext);
+      return AttachedFilePayload(
+        path: file.path,
+        name: name,
+        extension: ext,
+        sizeBytes: sizeBytes,
+        extractedText: _capText(extracted, 30000),
+        kindLabel: ext.substring(1).toUpperCase(),
+      );
+    }
+
+    // 3. PDF dokumenti
+    if (ext == '.pdf') {
+      final bytes = await file.readAsBytes();
+      final pdfText = _extractPdfTextPureDart(bytes);
+      return AttachedFilePayload(
+        path: file.path,
+        name: name,
+        extension: ext,
+        sizeBytes: sizeBytes,
+        extractedText: _capText(pdfText, 30000),
+        kindLabel: 'PDF',
+      );
+    }
+
+    // 4. ZIP arhivi
+    if (ext == '.zip') {
+      final bytes = await file.readAsBytes();
+      final zipSummary = _extractZipSummary(bytes);
+      return AttachedFilePayload(
+        path: file.path,
+        name: name,
+        extension: ext,
+        sizeBytes: sizeBytes,
+        extractedText: _capText(zipSummary, 28000),
+        kindLabel: 'ZIP',
+      );
+    }
+
+    // 5. Vse besedilne, kodne ali poljubne binarne datoteke (varno branje do 2 MB)
+    final maxRead = sizeBytes > 2 * 1024 * 1024 ? 2 * 1024 * 1024 : sizeBytes;
+    final bytes = await file
+        .openRead(0, maxRead)
+        .fold<List<int>>(<int>[], (prev, chunk) => prev..addAll(chunk));
+
+    if (_looksLikePrintableText(bytes)) {
+      final text = utf8.decode(bytes, allowMalformed: true);
+      return AttachedFilePayload(
+        path: file.path,
+        name: name,
+        extension: ext,
+        sizeBytes: sizeBytes,
+        extractedText: _capText(text, 32000),
+        kindLabel: ext.isEmpty ? 'TXT' : ext.substring(1).toUpperCase(),
+      );
+    }
+
+    // 6. Poljubna binarna datoteka: izluščimo metapodatke in berljive ASCII nize
+    final asciiStrings = _extractPrintableStringsFromBinary(bytes);
+    return AttachedFilePayload(
+      path: file.path,
+      name: name,
+      extension: ext,
+      sizeBytes: sizeBytes,
+      extractedText:
+          'Binarna datoteka: $name ($sizeBytes bajtov)\nIzluščeni berljivi nizi:\n${_capText(asciiStrings, 14000)}',
+      kindLabel: 'BIN',
+    );
+  }
+
+  String _extractOfficeDocumentText(List<int> bytes, String ext) {
+    try {
+      final archive = ZipDecoder().decodeBytes(bytes);
+      final out = StringBuffer();
+
+      if (ext == '.docx') {
+        final docFile = archive.findFile('word/document.xml');
+        if (docFile != null) {
+          final xml =
+              utf8.decode(docFile.content as List<int>, allowMalformed: true);
+          out.writeln(_cleanXmlToText(
+            xml
+                .replaceAll('</w:p>', '\n')
+                .replaceAll('<w:br/>', '\n')
+                .replaceAll('<w:tab/>', '\t')
+                .replaceAll('</w:tr>', '\n'),
+          ));
+        }
+      } else if (ext == '.odt') {
+        final contentFile = archive.findFile('content.xml');
+        if (contentFile != null) {
+          final xml = utf8.decode(
+              contentFile.content as List<int>, allowMalformed: true);
+          out.writeln(_cleanXmlToText(
+            xml.replaceAll('</text:p>', '\n').replaceAll('</text:h>', '\n'),
+          ));
+        }
+      } else if (ext == '.xlsx') {
+        for (final f in archive.files) {
+          if (f.isFile &&
+              (f.name == 'xl/sharedStrings.xml' ||
+                  f.name.startsWith('xl/worksheets/sheet'))) {
+            final xml =
+                utf8.decode(f.content as List<int>, allowMalformed: true);
+            out.writeln(_cleanXmlToText(xml.replaceAll('</si>', '\n')));
+          }
+        }
+      } else if (ext == '.pptx') {
+        final slides = archive.files
+            .where((f) => f.isFile && f.name.startsWith('ppt/slides/slide'))
+            .toList()
+          ..sort((a, b) => a.name.compareTo(b.name));
+        for (final slide in slides) {
+          final xml =
+              utf8.decode(slide.content as List<int>, allowMalformed: true);
+          out.writeln('--- Diapozitiv ${slide.name} ---');
+          out.writeln(_cleanXmlToText(xml.replaceAll('</a:p>', '\n')));
+        }
+      }
+
+      final result = out.toString().trim();
+      return result.isEmpty
+          ? '(Dokument je prazen ali nima besedilne plasti)'
+          : result;
+    } catch (e) {
+      return '(Napaka pri branju pisarniškega dokumenta: $e)';
+    }
+  }
+
+  String _cleanXmlToText(String xml) {
+    return xml
+        .replaceAll(RegExp(r'<[^>]+>'), '')
+        .replaceAll('&amp;', '&')
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&apos;', "'")
+        .replaceAll(RegExp(r'\n{3,}'), '\n\n')
+        .trim();
+  }
+
+  String _extractPdfTextPureDart(List<int> bytes) {
+    try {
+      final rawLatin = latin1.decode(bytes, allowInvalid: true);
+      final extracted = StringBuffer();
+      final streamRegex = RegExp(r'stream[\r\n]+([\s\S]*?)[\r\n]+endstream');
+
+      for (final match in streamRegex.allMatches(rawLatin)) {
+        final chunk = match.group(1);
+        if (chunk == null || chunk.isEmpty) continue;
+        String decodedStream = chunk;
+
+        try {
+          final rawChunkBytes = latin1.encode(chunk);
+          final inflated = zlib.decode(rawChunkBytes);
+          decodedStream = utf8.decode(inflated, allowMalformed: true);
+        } catch (_) {}
+
+        for (final tj in RegExp(r'\(([^()\\]*(?:\\.[^()\\]*)*)\)\s*Tj')
+            .allMatches(decodedStream)) {
+          extracted.write('${tj.group(1) ?? ''} ');
+        }
+        for (final arr in RegExp(r'\[([\s\S]*?)\]\s*TJ')
+            .allMatches(decodedStream)) {
+          final inner = arr.group(1) ?? '';
+          for (final sub
+              in RegExp(r'\(([^()\\]*(?:\\.[^()\\]*)*)\)').allMatches(inner)) {
+            extracted.write(sub.group(1) ?? '');
+          }
+          extracted.write(' ');
+        }
+      }
+
+      final text = extracted
+          .toString()
+          .replaceAll(r'\n', '\n')
+          .replaceAll(r'\(', '(')
+          .replaceAll(r'\)', ')')
+          .replaceAll(RegExp(r'\s{2,}'), ' ')
+          .trim();
+
+      if (text.length > 20) return text;
+      return _extractPrintableStringsFromBinary(bytes);
+    } catch (_) {
+      return _extractPrintableStringsFromBinary(bytes);
+    }
+  }
+
+  String _extractZipSummary(List<int> bytes) {
+    try {
+      final archive = ZipDecoder().decodeBytes(bytes);
+      final buf = StringBuffer()..writeln('Vsebina ZIP arhiva:');
+      int includedTextFiles = 0;
+
+      for (final f in archive.files) {
+        if (!f.isFile) continue;
+        buf.writeln('- ${f.name} (${f.size} B)');
+      }
+      buf.writeln();
+
+      for (final f in archive.files) {
+        if (!f.isFile || includedTextFiles >= 8 || f.size > 80 * 1024) continue;
+        final contentBytes = f.content as List<int>;
+        if (_looksLikePrintableText(contentBytes)) {
+          includedTextFiles++;
+          buf.writeln('=== ${f.name} ===');
+          buf.writeln(_capText(
+              utf8.decode(contentBytes, allowMalformed: true), 3000));
+        }
+      }
+      return buf.toString();
+    } catch (e) {
+      return 'ZIP arhiva ni bilo mogoče razširiti: $e';
+    }
+  }
+
+  bool _looksLikePrintableText(List<int> bytes) {
+    if (bytes.isEmpty) return true;
+    final sampleLen = bytes.length > 2048 ? 2048 : bytes.length;
+    int suspicious = 0;
+    for (int i = 0; i < sampleLen; i++) {
+      final b = bytes[i];
+      if (b == 0) return false;
+      if (b < 9 || (b > 13 && b < 32)) suspicious++;
+    }
+    return (suspicious / sampleLen) < 0.08;
+  }
+
+  String _extractPrintableStringsFromBinary(List<int> bytes) {
+    final out = StringBuffer();
+    final current = StringBuffer();
+    final limit = bytes.length > 150000 ? 150000 : bytes.length;
+
+    for (int i = 0; i < limit; i++) {
+      final b = bytes[i];
+      if (b >= 32 && b <= 126) {
+        current.writeCharCode(b);
+      } else {
+        if (current.length >= 5) {
+          out.writeln(current.toString());
+        }
+        current.clear();
+      }
+    }
+    if (current.length >= 5) out.writeln(current.toString());
+    return out.toString();
+  }
+
+  String _capText(String input, int maxChars) {
+    if (input.length <= maxChars) return input;
+    return '${input.substring(0, maxChars)}\n...[Besedilo skrajšano na $maxChars znakov zaradi varovanja pomnilnika]...';
+  }
+
+  //**************
+  // Glavna metoda za pošiljanje sporočila in pripetih datotek izbranemu LLM-ju *
+  // Podpira sprotno pretakanje (streaming) in samodejno vključevanje naučenega znanja *
+  //**************
+  Future<void> executeUltronPrompt(String rawPrompt) async {
+    final trimmed = rawPrompt.trim();
+    if (trimmed.isEmpty && pendingAttachments.isEmpty) return;
+    if (isGenerating) return;
+
+    final attachmentsSnapshot = List<AttachedFilePayload>.from(pendingAttachments);
+    pendingAttachments.clear();
+
+    final userDisplay = trimmed.isEmpty
+        ? 'Analiziraj priložene datoteke (${attachmentsSnapshot.map((e) => e.name).join(", ")}).'
+        : trimmed;
+
+    messages.add(
+      ChatMessageItem(
+        id: 'u_${DateTime.now().microsecondsSinceEpoch}',
+        role: 'user',
+        content: userDisplay,
+        modelName: 'Uporabnik',
+        attachedFileNames: attachmentsSnapshot.map((a) => a.name).toList(),
+        timestamp: DateTime.now(),
+      ),
     );
 
-    if (!isOllamaOnline) {
-      final ok = await checkLocalOllamaHealth();
-      if (!ok) {
-        triggerErrorState('Ollama server offline at $ollamaBaseUrl');
-        return;
+    final assistantMsg = ChatMessageItem(
+      id: 'a_${DateTime.now().microsecondsSinceEpoch}',
+      role: 'assistant',
+      content: '',
+      modelName: activeLocalModel,
+      timestamp: DateTime.now(),
+      isStreaming: true,
+    );
+    messages.add(assistantMsg);
+
+    isGenerating = true;
+    orbState = OrbState.thinking;
+    activeExecutionModel = activeLocalModel;
+    notifyListeners();
+
+    // Sestavimo celoten kontekst iz pripetih datotek in aktivnega urejevalnika
+    final fullUserContext = StringBuffer();
+    if (attachmentsSnapshot.isNotEmpty) {
+      fullUserContext.writeln('PRILOŽENE DATOTEKE:');
+      for (final att in attachmentsSnapshot) {
+        fullUserContext.writeln(
+            '=== DATOTEKA: ${att.name} (${att.kindLabel}, ${att.humanSize}) ===');
+        fullUserContext.writeln(att.extractedText);
+        fullUserContext.writeln('=== KONEC DATOTEKE: ${att.name} ===\n');
       }
     }
 
-    isStreamingResponse = true;
-    orbState = OrbState.thinking;
-    currentCenterResponseText = '';
-    _showToastBanner('${activeLocalModel.toUpperCase()} THINKING...');
-
-    final learnedContext =
-        memoryService.retrieveRelevantLearnedContext(input, maxChars: 3200);
-    final pluginContext = pluginService.buildLazyLoadedPluginContext(input);
-
-    String activeFileContext = '';
-    if (activeTab != null) {
-      final snippet = activeTab!.lines.take(90).join('\n');
-      activeFileContext =
-          '\n[OPEN FILE IN VS CODE WINDOW: ${activeTab!.filePath}]:\n```\n$snippet\n```';
+    if (activeTab != null &&
+        attachmentsSnapshot.every((a) => a.path != activeTab!.filePath)) {
+      final editorSnippet = _capText(activeTab!.lines.join('\n'), 10000);
+      fullUserContext.writeln(
+          'TRENUTNO ODPRTA DATOTEKA V UREJEVALNIKU (${activeTab!.fileName}):\n$editorSnippet\n');
     }
 
-    final systemPrompt =
-        'You are Ultron, an advanced AI system and coding architect running locally on CachyOS (Intel Arc B570).\n'
-        'Speak concisely, directly, and with sharp technical clarity.\n'
-        'Whenever you write or modify code, wrap the code in a standard ```language ... ``` block. '
-        'If the user specifies a file name (or if you are creating a new file), put "// file: relative/path.ext" on the first line inside the code block so it writes directly into the VS Code window.\n'
-        'Learned preferences:\n$learnedContext\n'
-        '$pluginContext'
-        '$activeFileContext';
+    fullUserContext.writeln('UPORABNIKOVO NAVODILO:\n$userDisplay');
 
-    final responseTurn = ChatTurnRecord(
-      timestamp: DateTime.now(),
-      sender: 'ULTRON',
-      modelUsed: activeLocalModel,
-      thinkingLevel: 'STREAMING',
-      text: '',
+    final learnedContext = memoryService.buildLearnedSystemContext(userDisplay);
+    final pluginContext = pluginService.buildLazyLoadedPluginContext();
+
+    final systemPrompt = [
+      'Ti si Ultron, natančen lokalni inženirski AI asistent.',
+      'Odgovarjaj jedrnato, tehnično točno in v jeziku uporabnika.',
+      'Pri pisanju kode pazi na pravilne velike in male začetnice ter uporabi // za enovrstične komentarje in okvir //************** z znakom * na koncu srednjih vrstic za večvrstične komentarje.',
+      if (learnedContext.isNotEmpty) learnedContext,
+      if (pluginContext.isNotEmpty) pluginContext,
+    ].join('\n\n');
+
+    final imagesBase64 = attachmentsSnapshot
+        .where((a) => a.base64Image != null)
+        .map((a) => a.base64Image!)
+        .toList();
+
+    _sessionHistory.add(
+      ChatTurnRecord(
+        role: 'user',
+        content: userDisplay,
+        modelUsed: activeLocalModel,
+        attachedFiles: attachmentsSnapshot.map((a) => a.name).toList(),
+        timestamp: DateTime.now(),
+      ),
     );
-    chatHistory.add(responseTurn);
-
-    final stopwatch = Stopwatch()..start();
-    int evalCount = 0;
-    int promptEvalCount = (systemPrompt.length + input.length) ~/ 4;
-    final StringBuffer fullRawBuffer = StringBuffer();
-
-    bool liveEditorPreparedForThisStream = false;
-    List<String> preStreamEditorPrefixLines = [];
 
     try {
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 15);
-      final req = await client.postUrl(Uri.parse('$ollamaBaseUrl/api/chat'));
-      req.headers.set('Content-Type', 'application/json');
-
-      final recentMessages = <Map<String, String>>[
-        {'role': 'system', 'content': systemPrompt},
-      ];
-      final startIdx = (chatHistory.length - 7).clamp(0, chatHistory.length - 1);
-      for (int i = startIdx; i < chatHistory.length - 1; i++) {
-        final h = chatHistory[i];
-        recentMessages.add({
-          'role': h.sender == 'USER' ? 'user' : 'assistant',
-          'content': h.text,
-        });
+      if (activeLocalModel.startsWith('lmstudio:')) {
+        await _streamFromLmStudio(
+          modelId: activeLocalModel.substring('lmstudio:'.length),
+          systemPrompt: systemPrompt,
+          userContent: fullUserContext.toString(),
+          targetMsg: assistantMsg,
+        );
+      } else {
+        await _streamFromOllama(
+          modelName: activeLocalModel,
+          systemPrompt: systemPrompt,
+          userContent: fullUserContext.toString(),
+          imagesBase64: imagesBase64,
+          targetMsg: assistantMsg,
+        );
       }
 
-      req.add(
-        utf8.encode(
-          jsonEncode({
-            'model': activeLocalModel,
-            'messages': recentMessages,
-            'stream': true,
-          }),
+      final idx = messages.indexWhere((m) => m.id == assistantMsg.id);
+      if (idx != -1) {
+        messages[idx] = ChatMessageItem(
+          id: assistantMsg.id,
+          role: 'assistant',
+          content: assistantMsg.content,
+          modelName: activeLocalModel,
+          timestamp: assistantMsg.timestamp,
+          isStreaming: false,
+        );
+      }
+
+      _sessionHistory.add(
+        ChatTurnRecord(
+          role: 'assistant',
+          content: assistantMsg.content,
+          modelUsed: activeLocalModel,
+          timestamp: DateTime.now(),
         ),
       );
 
-      final resp = await req.close();
-      if (resp.statusCode != 200) {
-        final errBody = await resp.transform(utf8.decoder).join();
-        client.close();
-        throw Exception('Ollama HTTP ${resp.statusCode}:$errBody');
+      await memoryService.saveConversationToDisk(_sessionHistory);
+
+      // Samodejno sprotno učenje ob daljših sejah, če je vklopljeno
+      if (memoryService.autoLearnEnabled &&
+          _sessionHistory.length % 6 == 0) {
+        unawaited(triggerLearnPass(silent: true));
       }
-
-      orbState = OrbState.answering;
-      memoryService.updateLiveStreamingSpeed(0.0, generating: true);
-
-      await for (final chunk
-          in resp.transform(utf8.decoder).transform(const LineSplitter())) {
-        if (chunk.trim().isEmpty) continue;
-        try {
-          final data = jsonDecode(chunk) as Map<String, dynamic>;
-          final msg = data['message'] as Map<String, dynamic>?;
-          final tokenPiece = (msg?['content'] ?? '').toString();
-
-          if (tokenPiece.isNotEmpty) {
-            fullRawBuffer.write(tokenPiece);
-            evalCount++;
-
-            final elapsedSec =
-                (stopwatch.elapsedMilliseconds / 1000.0).clamp(0.05, 3600.0);
-            final liveTps = evalCount / elapsedSec;
-            memoryService.updateLiveStreamingSpeed(liveTps, generating: true);
-
-            final rawSoFar = fullRawBuffer.toString();
-
-            // Check if Ultron is streaming a code block -> Write it LIVE into the VS Code Window!
-            final fenceStart = rawSoFar.indexOf('```');
-            if (fenceStart != -1) {
-              final afterFence = rawSoFar.substring(fenceStart + 3);
-              final firstNewline = afterFence.indexOf('\n');
-              if (firstNewline != -1) {
-                var codeBody = afterFence.substring(firstNewline + 1);
-                final closingFence = codeBody.indexOf('```');
-                if (closingFence != -1) {
-                  codeBody = codeBody.substring(0, closingFence);
-                }
-
-                if (!liveEditorPreparedForThisStream) {
-                  liveEditorPreparedForThisStream = true;
-                  await _prepareTargetTabForLiveCodeStream(codeBody);
-                  if (activeTab != null) {
-                    _createPreEditBackupSnapshot(activeTab!);
-                    preStreamEditorPrefixLines = List<String>.from(activeTab!.lines);
-                  }
-                }
-
-                // Write the incoming code lines directly into the VS Code window tab!
-                if (activeTab != null && autoApplyEdits) {
-                  final incomingCodeLines = codeBody.split('\n');
-                  // If the code specifies "// file: ...", replace file content cleanly; otherwise append/update
-                  final isFullFileWrite =
-                      codeBody.trimLeft().startsWith('// file:') ||
-                      codeBody.contains('void main(') ||
-                      codeBody.contains('import \'package:');
-                  if (isFullFileWrite) {
-                    activeTab!.lines = incomingCodeLines;
-                  } else {
-                    activeTab!.lines = [
-                      ...preStreamEditorPrefixLines,
-                      '',
-                      ...incomingCodeLines,
-                    ];
-                  }
-                  activeTab!.gitStatusBadge = 'M';
-                  activeStreamingLineInEditor = activeTab!.lines.length - 1;
-                }
-              }
-            }
-
-            // Keep the center floating text clean (strip giant code blocks and show live editor badge)
-            currentCenterResponseText = _formatCleanCenterText(
-              rawSoFar,
-              activeFileName: activeTab?.fileName ?? 'workspace buffer',
-            );
-            responseTurn.text = rawSoFar;
-            subtleKeystrokePulse = 0.45;
-            notifyListeners();
-          }
-
-          if (data['done'] == true) {
-            promptEvalCount =
-                (data['prompt_eval_count'] as num?)?.toInt() ?? promptEvalCount;
-            evalCount = (data['eval_count'] as num?)?.toInt() ?? evalCount;
-          }
-        } catch (_) {}
-      }
-      client.close();
-
-      stopwatch.stop();
-      final totalSec =
-          (stopwatch.elapsedMilliseconds / 1000.0).clamp(0.1, 3600.0);
-      final finalTps = evalCount / totalSec;
-
-      final finalRaw = fullRawBuffer.toString().trim();
-      responseTurn.text = finalRaw;
-      responseTurn.thinkingLevel = '${finalTps.toStringAsFixed(1)} tok/s';
-      currentCenterResponseText = _formatCleanCenterText(
-        finalRaw,
-        activeFileName: activeTab?.fileName ?? 'workspace buffer',
-      );
-
-      // Persist live-written code to disk if Ultron wrote code into the VS Code window
-      if (liveEditorPreparedForThisStream && activeTab != null) {
-        if (autoApplyEdits) {
-          File(activeTab!.filePath)
-              .writeAsStringSync(activeTab!.lines.join('\n'));
-          if (!modifiedFilesInSession.contains(activeTab!.fileName)) {
-            modifiedFilesInSession.add(activeTab!.fileName);
-          }
-        } else {
-          final extracted = extractFirstCodeBlock(finalRaw);
-          if (extracted != null) {
-            proposeCodeBlockAsDiffHunk(
-              codeBlock: extracted,
-              description: 'Generated by $activeLocalModel',
-            );
-          }
-        }
-      }
-
-      activeStreamingLineInEditor = -1;
-      memoryService.recordLocalOllamaUsage(
-        promptTokens: promptEvalCount,
-        completionTokens: evalCount,
-        tokensPerSec: finalTps,
-      );
 
       orbState = OrbState.standby;
-      isStreamingResponse = false;
-      _showToastBanner(
-        'COMPLETE // ${finalTps.toStringAsFixed(1)} TOK/S',
-      );
     } catch (e) {
-      isStreamingResponse = false;
-      activeStreamingLineInEditor = -1;
-      memoryService.updateLiveStreamingSpeed(0.0, generating: false);
-      triggerErrorState(e.toString());
-    }
-  }
-
-  // Ensures a target file tab is open in the VS Code Window when Ultron starts writing code
-  Future<void> _prepareTargetTabForLiveCodeStream(String initialCode) async {
-    isVsCodeWindowOpen = true;
-    final firstLine = initialCode.split('\n').first.trim();
-    if (firstLine.startsWith('// file:')) {
-      final relPath = firstLine.replaceFirst('// file:', '').trim();
-      if (relPath.isNotEmpty) {
-        final fullPath = '$workspaceRootPath/$relPath';
-        final f = File(fullPath);
-        if (isPathInsideWorkspace(fullPath)) {
-          if (!f.existsSync()) {
-            f.parent.createSync(recursive: true);
-            f.writeAsStringSync('');
-          }
-          await openFileInEditorTab(fullPath, autoOpenWindow: true);
-          return;
-        }
+      orbState = OrbState.error;
+      final idx = messages.indexWhere((m) => m.id == assistantMsg.id);
+      if (idx != -1) {
+        final fallbackText = assistantMsg.content.isEmpty
+            ? 'Povezava z lokalnim modelom "$activeLocalModel" ni uspela ($e).\nPreveri, ali Ollama teče na $ollamaBaseUrl ali v nastavitvah klikni "Zaženi Ollama strežnik".'
+            : assistantMsg.content;
+        messages[idx] = ChatMessageItem(
+          id: assistantMsg.id,
+          role: 'assistant',
+          content: fallbackText,
+          modelName: activeLocalModel,
+          timestamp: assistantMsg.timestamp,
+          isStreaming: false,
+        );
       }
-    }
-
-    if (openTabs.isEmpty) {
-      final fallback = File('$workspaceRootPath/lib/main.dart').existsSync()
-          ? '$workspaceRootPath/lib/main.dart'
-          : '$workspaceRootPath/README.md';
-      await openFileInEditorTab(fallback, autoOpenWindow: true);
-    }
-  }
-
-  // Replaces bulky code blocks in the center floating view with a clean live-writing indicator
-  String _formatCleanCenterText(
-    String rawMarkdown, {
-    required String activeFileName,
-  }) {
-    final closedHandled = rawMarkdown.replaceAll(
-      RegExp(r'```(?:[a-zA-Z0-9_+-]+)?\n[\s\S]*?```'),
-      '\n⚡ [CODE WRITTEN LIVE TO VS CODE WINDOW -> $activeFileName]\n',
-    );
-    final openFenceIdx = closedHandled.indexOf('```');
-    if (openFenceIdx != -1) {
-      return '${closedHandled.substring(0, openFenceIdx).trim()}\n\n⚡ [STREAMING CODE LIVE INTO VS CODE WINDOW -> $activeFileName...]';
-    }
-    return closedHandled.replaceAll('**', '').trim();
-  }
-
-  String? extractFirstCodeBlock(String markdown) {
-    final reg = RegExp(r'```(?:[a-zA-Z0-9_+-]+)?\n([\s\S]*?)```');
-    final match = reg.firstMatch(markdown);
-    return match?.group(1);
-  }
-
-  void proposeCodeBlockAsDiffHunk({
-    required String codeBlock,
-    required String description,
-  }) {
-    if (openTabs.isEmpty) {
-      final fallback = File('$workspaceRootPath/lib/main.dart').existsSync()
-          ? '$workspaceRootPath/lib/main.dart'
-          : '$workspaceRootPath/README.md';
-      openFileInEditorTab(fallback, autoOpenWindow: true);
-    }
-    final tab = activeTab;
-    if (tab == null) return;
-
-    final proposedLines = codeBlock.trimRight().split('\n');
-    final startLine = (tab.lines.length > 4) ? tab.lines.length - 2 : 1;
-    final orig = tab.lines.sublist(startLine - 1);
-
-    final hunk = DiffHunkProposal(
-      id: 'hunk_${DateTime.now().millisecondsSinceEpoch}',
-      filePath: tab.filePath,
-      startLine: startLine,
-      originalLines: orig,
-      proposedLines: [...orig, '', ...proposedLines],
-      description: description,
-    );
-
-    if (autoApplyEdits) {
-      acceptDiffHunk(hunk);
-    } else {
-      pendingDiffHunks.insert(0, hunk);
-      isVsCodeWindowOpen = true;
+    } finally {
+      _activeStreamClient = null;
+      isGenerating = false;
+      isStreamingCode = false;
       notifyListeners();
     }
   }
 
-  //********************************************************************
-  // 3. /learn PROJECT CODE SCANNER                                    *
-  //********************************************************************
-  Future<void> learnFromProjectsAndChats() async {
-    orbState = OrbState.thinking;
-    isOrbCompactTop = true;
-    currentPromptLabel = '/learn';
-    currentCenterResponseText =
-        'Scanning workspace source files (.dart, .c, .cpp, .cs, .go, .rs, .ts)...';
-    _showToastBanner('SCANNING PROJECT CODE FOR /learn...');
-
-    final result = memoryService.runIncrementalLearnPass(
-      activePluginNames: pluginService.installedPlugins
-          .where((p) => p.isEnabled)
-          .map((p) => p.name)
-          .toList(),
-      projectDirectoriesToScan: [
-        workspaceRootPath,
-        '$userHome/Projects',
-        desktopProjectsDir,
-      ],
-    );
-
+  void stopGeneration() {
+    _activeStreamClient?.close(force: true);
+    _activeStreamClient = null;
+    isGenerating = false;
     orbState = OrbState.standby;
-    final summary =
-        'Codebase & Chat Learning Complete\n\n'
-        '• Source code files analyzed: ${result['scannedCodeFiles']}\n'
-        '• Languages indexed: ${result['languages']}\n'
-        '• Newly processed chat archives: ${result['newlyProcessedChats']}\n'
-        '• Patterns saved to ultron_memory/learned/projects.md & preferences.md';
-
-    currentCenterResponseText = summary;
-    _appendTurn(
-      sender: 'ULTRON',
-      model: activeLocalModel,
-      level: 'CODE LEARNER',
-      text: summary,
-    );
-    _showToastBanner(
-      '/learn COMPLETE // ${result['scannedCodeFiles']} FILES INDEXED',
-    );
-  }
-
-  //********************************************************************
-  // 4. GIT AUTOMATION (git pull, git commit, git push)                *
-  //********************************************************************
-  Future<void> _detectGitBranch() async {
-    try {
-      final res = await Process.run(
-        'git',
-        ['rev-parse', '--abbrev-ref', 'HEAD'],
-        workingDirectory: workspaceRootPath,
-      );
-      if (res.exitCode == 0 && res.stdout.toString().trim().isNotEmpty) {
-        currentGitBranch = res.stdout.toString().trim();
-      }
-    } catch (_) {}
     notifyListeners();
   }
 
-  Future<void> gitPull() async {
-    orbState = OrbState.thinking;
-    isOrbCompactTop = true;
-    currentPromptLabel = 'git pull';
-    _showToastBanner('EXECUTING: git pull...');
-    try {
-      final res = await Process.run(
-        'git',
-        ['pull'],
-        workingDirectory: workspaceRootPath,
-      );
-      final out = '${res.stdout}\n${res.stderr}'.trim();
-      lastGitCommandOutput = out.isEmpty ? 'Already up to date.' : out;
-      currentCenterResponseText = lastGitCommandOutput;
-      orbState = OrbState.standby;
-      refreshDirectoryEntities(workspaceRootPath);
-      _showToastBanner('GIT PULL COMPLETE ($currentGitBranch)');
-    } catch (e) {
-      triggerErrorState('git pull failed: $e');
-    }
+  void clearConversation() {
+    messages.clear();
+    _sessionHistory.clear();
+    notifyListeners();
   }
 
-  Future<void> gitCommitAndPush({
-    required String commitMessage,
-    bool pushAfter = true,
+  Future<void> _streamFromOllama({
+    required String modelName,
+    required String systemPrompt,
+    required String userContent,
+    required List<String> imagesBase64,
+    required ChatMessageItem targetMsg,
   }) async {
-    final msg = commitMessage.trim().isEmpty
-        ? 'feat: update via Ultron Neural Core'
-        : commitMessage.trim();
-    orbState = OrbState.thinking;
-    isOrbCompactTop = true;
-    currentPromptLabel = pushAfter ? 'git commit & push' : 'git commit';
-    _showToastBanner('COMMITTING: "$msg"...');
+    final cleanBase = ollamaBaseUrl.endsWith('/')
+        ? ollamaBaseUrl.substring(0, ollamaBaseUrl.length - 1)
+        : ollamaBaseUrl;
 
-    try {
-      await Process.run('git', ['add', '.'], workingDirectory: workspaceRootPath);
-      final commitRes = await Process.run(
-        'git',
-        ['commit', '-m', msg],
-        workingDirectory: workspaceRootPath,
-      );
-      final commitOut = '${commitRes.stdout}\n${commitRes.stderr}'.trim();
-      lastGitCommandOutput = commitOut;
-
-      if (pushAfter) {
-        final pushRes = await Process.run(
-          'git',
-          ['push', 'origin', currentGitBranch],
-          workingDirectory: workspaceRootPath,
-        );
-        final pushOut = '${pushRes.stdout}\n${pushRes.stderr}'.trim();
-        lastGitCommandOutput = '$commitOut\n$pushOut'.trim();
-      }
-
-      currentCenterResponseText = lastGitCommandOutput;
-      orbState = OrbState.standby;
-      _showToastBanner(
-        pushAfter ? 'GIT COMMIT & PUSH COMPLETE' : 'GIT COMMIT COMPLETE',
-      );
-    } catch (e) {
-      triggerErrorState('Git operation failed: $e');
-    }
-  }
-
-  Future<void> gitPush() async {
-    orbState = OrbState.thinking;
-    isOrbCompactTop = true;
-    currentPromptLabel = 'git push';
-    _showToastBanner('PUSHING TO origin/$currentGitBranch...');
-    try {
-      final res = await Process.run(
-        'git',
-        ['push', 'origin', currentGitBranch],
-        workingDirectory: workspaceRootPath,
-      );
-      final out = '${res.stdout}\n${res.stderr}'.trim();
-      lastGitCommandOutput = out.isEmpty ? 'Push succeeded.' : out;
-      currentCenterResponseText = lastGitCommandOutput;
-      orbState = OrbState.standby;
-      _showToastBanner('GIT PUSH COMPLETE ($currentGitBranch)');
-    } catch (e) {
-      triggerErrorState('git push failed: $e');
-    }
-  }
-
-  Future<void> _checkSavedGithubAuth() async {
-    String ghToken = await memoryService.readSecret('github_token');
-    if (ghToken.isEmpty) {
-      try {
-        final gh = await Process.run('gh', ['auth', 'token']);
-        if (gh.exitCode == 0 && gh.stdout.toString().trim().isNotEmpty) {
-          ghToken = gh.stdout.toString().trim();
-          await memoryService.writeSecret('github_token', ghToken);
-        }
-      } catch (_) {}
-    }
-    if (ghToken.isNotEmpty) {
-      await connectGithubWithToken(ghToken, silent: true);
-    } else {
-      await fetchGithubRepos(githubUsername);
-    }
-  }
-
-  Future<bool> connectGithubWithToken(
-    String rawToken, {
-    bool silent = false,
-  }) async {
-    final token = rawToken.trim();
-    if (token.isEmpty) return false;
-
-    try {
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 8);
-      final userReq =
-          await client.getUrl(Uri.parse('https://api.github.com/user'));
-      userReq.headers.set('User-Agent', 'Ultron-Neural-Consciousness');
-      userReq.headers.set('Authorization', 'Bearer $token');
-      final userResp = await userReq.close();
-      final userBody = await userResp.transform(utf8.decoder).join();
-      client.close();
-
-      if (userResp.statusCode != 200) {
-        isGithubConnected = false;
-        if (!silent) {
-          triggerErrorState('GitHub Auth HTTP ${userResp.statusCode}');
-        }
-        return false;
-      }
-
-      final userMap = jsonDecode(userBody) as Map<String, dynamic>;
-      githubUsername = (userMap['login'] ?? '').toString();
-      isGithubConnected = true;
-      await memoryService.writeSecret('github_token', token);
-
-      await fetchGithubRateLimit();
-      await fetchGithubRepos(githubUsername);
-      _syncConnectionsMetadataFile();
-      return true;
-    } catch (e) {
-      if (!silent) triggerErrorState('GitHub connection error: $e');
-      return false;
-    }
-  }
-
-  Future<void> startGithubDeviceFlow(String oauthClientId) async {
-    final cid = oauthClientId.trim();
-    if (cid.isEmpty) {
-      triggerErrorState('Enter a GitHub OAuth Client ID or paste a PAT.');
-      return;
-    }
-
-    try {
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 8);
-      final req = await client.postUrl(
-        Uri.parse('https://github.com/login/device/code'),
-      );
-      req.headers.set('Accept', 'application/json');
-      req.headers.set('Content-Type', 'application/json');
-      req.add(
-          utf8.encode(jsonEncode({'client_id': cid, 'scope': 'repo read:user'})));
-      final resp = await req.close();
-      final body = await resp.transform(utf8.decoder).join();
-      client.close();
-
-      final map = jsonDecode(body) as Map<String, dynamic>;
-      if (map.containsKey('user_code')) {
-        githubDeviceUserCode = map['user_code'].toString();
-        final uri = (map['verification_uri'] ?? 'https://github.com/login/device')
-            .toString();
-        await openWebUrl(uri);
-        _showToastBanner('GITHUB DEVICE CODE: $githubDeviceUserCode');
-      } else {
-        triggerErrorState('GitHub Device Flow error: $body');
-      }
-    } catch (e) {
-      triggerErrorState('Device Flow failed: $e');
-    }
-  }
-
-  Future<void> fetchGithubRateLimit() async {
-    final token = await memoryService.readSecret('github_token');
-    try {
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 6);
-      final req =
-          await client.getUrl(Uri.parse('https://api.github.com/rate_limit'));
-      req.headers.set('User-Agent', 'Ultron-Neural-Consciousness');
-      if (token.isNotEmpty) {
-        req.headers.set('Authorization', 'Bearer $token');
-      }
-      final resp = await req.close();
-      if (resp.statusCode == 200) {
-        final body = await resp.transform(utf8.decoder).join();
-        final map = jsonDecode(body) as Map<String, dynamic>;
-        final rate = (map['rate'] as Map<String, dynamic>? ?? {});
-        githubRateLimitRemaining =
-            (rate['remaining'] as num?)?.toInt() ?? 60;
-        githubRateLimitTotal = (rate['limit'] as num?)?.toInt() ?? 60;
-      }
-      client.close();
-    } catch (_) {}
-    notifyListeners();
-  }
-
-  Future<void> fetchGithubRepos(String usernameInput) async {
-    final user =
-        usernameInput.trim().isEmpty ? githubUsername : usernameInput.trim();
-    if (user.isEmpty) return;
-    githubUsername = user;
-
-    final token = await memoryService.readSecret('github_token');
-    try {
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 8);
-      final uri = (token.isNotEmpty && user == githubUsername)
-          ? Uri.parse('https://api.github.com/user/repos?sort=updated&per_page=30')
-          : Uri.parse(
-              'https://api.github.com/users/$user/repos?sort=updated&per_page=30',
-            );
-      final req = await client.getUrl(uri);
-      req.headers.set('User-Agent', 'Ultron-Neural-Consciousness');
-      if (token.isNotEmpty) {
-        req.headers.set('Authorization', 'Bearer $token');
-      }
-      final resp = await req.close();
-      if (resp.statusCode == 200) {
-        final body = await resp.transform(utf8.decoder).join();
-        final list = jsonDecode(body) as List<dynamic>;
-        githubRepos = list.map((e) {
-          final m = e as Map<String, dynamic>;
-          final name = (m['name'] ?? 'repo').toString();
-          final target = '$desktopProjectsDir/$name';
-          return GitHubRepoEntry(
-            name: name,
-            fullName: (m['full_name'] ?? name).toString(),
-            description: (m['description'] ?? 'No description').toString(),
-            cloneUrl: (m['clone_url'] ?? '').toString(),
-            defaultBranch: (m['default_branch'] ?? 'main').toString(),
-            isCloned: Directory(target).existsSync(),
-            localPath: Directory(target).existsSync() ? target : null,
-          );
-        }).toList();
-        _syncConnectionsMetadataFile();
-      }
-      client.close();
-    } catch (_) {}
-    notifyListeners();
-  }
-
-  void _syncConnectionsMetadataFile() {
-    memoryService.saveNonSecretConnectionsMetadata(
-      ollamaConnected: isOllamaOnline,
-      activeLocalModel: activeLocalModel,
-      githubConnected: isGithubConnected,
-      githubUsername: githubUsername,
-      repoNames: githubRepos.map((r) => r.fullName).toList(),
-    );
-  }
-
-  void startNewChatSession() {
-    chatHistory.clear();
-    currentPromptLabel = '';
-    currentCenterResponseText = '';
-    isOrbCompactTop = false;
-    _showToastBanner('NEW SESSION STARTED');
-  }
-
-  void loadSavedChatArchiveIntoView(SavedChatArchive archive) {
-    final turns = memoryService.loadArchivedConversation(archive.filePath);
-    if (turns.isNotEmpty) {
-      chatHistory
-        ..clear()
-        ..addAll(turns);
-      isOrbCompactTop = true;
-      currentPromptLabel = archive.fileName;
-      currentCenterResponseText = turns.last.text;
-      isResponseWindowOpen = false;
-      _showToastBanner('LOADED ARCHIVE: ${archive.fileName}');
-    }
-  }
-
-  //********************************************************************
-  // 5. WORKSPACE FILE SYSTEM & MULTI-TAB CODE EDITOR                  *
-  //********************************************************************
-  bool isPathInsideWorkspace(String candidatePath) {
-    try {
-      final normRoot = Directory(workspaceRootPath).absolute.path;
-      final normTarget = File(candidatePath).absolute.path;
-      return normTarget.startsWith(normRoot) ||
-          normTarget.startsWith(memoryService.memoryRootDir.path) ||
-          normTarget.startsWith('$userHome/Projects') ||
-          normTarget.startsWith(desktopProjectsDir);
-    } catch (_) {
-      return false;
-    }
-  }
-
-  List<String> getTopLevelQuickDirectories() {
-    final List<String> dirs = [
-      workspaceRootPath,
-      '$userHome/Projects',
-      desktopProjectsDir,
-      memoryService.memoryRootDir.path,
+    // Pripravimo kratko zgodovino zadnjih nekaj sporočil za kontekst klepeta
+    final apiMessages = <Map<String, dynamic>>[
+      {'role': 'system', 'content': systemPrompt},
     ];
-    return dirs.where((p) => Directory(p).existsSync()).toSet().toList();
-  }
 
-  List<FileSystemEntity> listEntitiesForDirectory(
-    String dirPath, {
-    String filter = '',
-  }) {
-    try {
-      final dir = Directory(dirPath);
-      if (!dir.existsSync()) return [];
-      final List<FileSystemEntity> results = [];
-      final isSearching = filter.trim().isNotEmpty;
+    final historyCount = messages.length - 2;
+    final startIdx = historyCount > 6 ? historyCount - 6 : 0;
+    for (int i = startIdx; i < historyCount; i++) {
+      final m = messages[i];
+      if (m.content.trim().isEmpty) continue;
+      apiMessages.add({'role': m.role, 'content': m.content});
+    }
 
-      for (final entity in dir.listSync(recursive: isSearching)) {
-        final name = entity.path.split(Platform.pathSeparator).last;
-        if (name.startsWith('.git') ||
-            name.startsWith('.dart_tool') ||
-            name == 'build') {
-          continue;
-        }
-        if (!isSearching ||
-            name.toLowerCase().contains(filter.trim().toLowerCase())) {
-          results.add(entity);
-        }
-        if (results.length >= 60) break;
+    final currentMsgMap = <String, dynamic>{
+      'role': 'user',
+      'content': userContent,
+      if (imagesBase64.isNotEmpty) 'images': imagesBase64,
+    };
+    apiMessages.add(currentMsgMap);
+
+    final options = <String, dynamic>{
+      'num_ctx': contextWindowTokens,
+      if (customNumGpuLayers > 0) 'num_gpu': customNumGpuLayers,
+    };
+
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 8);
+    _activeStreamClient = client;
+
+    final req = await client.postUrl(Uri.parse('$cleanBase/api/chat'));
+    req.headers.contentType = ContentType.json;
+    req.add(utf8.encode(jsonEncode({
+      'model': modelName,
+      'messages': apiMessages,
+      'stream': true,
+      'options': options,
+    })));
+
+    final res = await req.close();
+    if (res.statusCode != 200) {
+      final errBody = await res.transform(utf8.decoder).join();
+      throw Exception('HTTP ${res.statusCode}: $errBody');
+    }
+
+    isOllamaOnline = true;
+    int uiThrottleCounter = 0;
+
+    await for (final line
+        in res.transform(utf8.decoder).transform(const LineSplitter())) {
+      if (line.trim().isEmpty) continue;
+      final chunk = jsonDecode(line) as Map<String, dynamic>;
+
+      if (orbState != OrbState.answering) {
+        orbState = OrbState.answering;
       }
 
-      results.sort((a, b) {
-        if (a is Directory && b is! Directory) return -1;
-        if (a is! Directory && b is Directory) return 1;
-        return a.path.compareTo(b.path);
-      });
-      return results;
-    } catch (_) {
-      return [];
+      final msgObj = chunk['message'] as Map<String, dynamic>?;
+      final token = msgObj?['content']?.toString() ?? '';
+      if (token.isNotEmpty) {
+        targetMsg.content += token;
+        uiThrottleCounter++;
+        if (uiThrottleCounter % 2 == 0) {
+          notifyListeners();
+        }
+      }
+
+      if (chunk['done'] == true) {
+        final evalCount = (chunk['eval_count'] as num?)?.toInt() ?? 0;
+        final evalDuration = (chunk['eval_duration'] as num?)?.toInt() ?? 0;
+        await memoryService.recordLocalOllamaUsage(
+          evalCount: evalCount,
+          evalDurationNs: evalDuration,
+        );
+      }
+    }
+    notifyListeners();
+  }
+
+  Future<void> _streamFromLmStudio({
+    required String modelId,
+    required String systemPrompt,
+    required String userContent,
+    required ChatMessageItem targetMsg,
+  }) async {
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 6);
+    _activeStreamClient = client;
+
+    final req = await client
+        .postUrl(Uri.parse('http://127.0.0.1:1234/v1/chat/completions'));
+    req.headers.contentType = ContentType.json;
+    req.add(utf8.encode(jsonEncode({
+      'model': modelId,
+      'stream': false,
+      'messages': [
+        {'role': 'system', 'content': systemPrompt},
+        {'role': 'user', 'content': userContent},
+      ],
+    })));
+
+    final res = await req.close();
+    final body = await res.transform(utf8.decoder).join();
+    if (res.statusCode != 200) {
+      throw Exception('LM Studio HTTP ${res.statusCode}');
+    }
+    final data = jsonDecode(body) as Map<String, dynamic>;
+    final choices = (data['choices'] as List<dynamic>?) ?? const [];
+    if (choices.isNotEmpty) {
+      orbState = OrbState.answering;
+      targetMsg.content =
+          choices.first['message']?['content']?.toString() ?? '';
+      notifyListeners();
     }
   }
 
-  void refreshDirectoryEntities(String dirPath) {
-    workspaceRootPath = dirPath;
-    currentFolderEntities =
-        listEntitiesForDirectory(dirPath, filter: searchQuery);
-    _detectGitBranch();
-    notifyListeners();
+  // Enkraten tihi klic lokalnega LLM-ja za dejansko Learn sintezo pravil
+  Future<String?> _runOneShotLearnSynthesis(String prompt) async {
+    if (!isOllamaOnline || activeLocalModel.startsWith('lmstudio:')) {
+      return null;
+    }
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 5);
+    try {
+      final cleanBase = ollamaBaseUrl.endsWith('/')
+          ? ollamaBaseUrl.substring(0, ollamaBaseUrl.length - 1)
+          : ollamaBaseUrl;
+      final req = await client.postUrl(Uri.parse('$cleanBase/api/generate'));
+      req.headers.contentType = ContentType.json;
+      req.add(utf8.encode(jsonEncode({
+        'model': activeLocalModel,
+        'prompt': prompt,
+        'stream': false,
+        'options': {
+          'temperature': 0.2,
+          'num_ctx': 4096,
+          if (customNumGpuLayers > 0) 'num_gpu': customNumGpuLayers,
+        },
+      })));
+      final res = await req.close().timeout(const Duration(seconds: 45));
+      if (res.statusCode == 200) {
+        final decoded =
+            jsonDecode(await res.transform(utf8.decoder).join());
+        return decoded['response']?.toString();
+      }
+    } catch (_) {
+    } finally {
+      client.close();
+    }
+    return null;
   }
 
-  void pinFolderOnTop(String folderPath) {
-    pinnedFolderPath = folderPath;
-    pinnedFilePath = null;
-    workspaceRootPath = folderPath;
-    searchQuery = '';
-    refreshDirectoryEntities(folderPath);
-    _showToastBanner(
-      'PINNED PROJECT: ${folderPath.split(Platform.pathSeparator).last}',
+  // Sproži dejansko učenje nad trenutno izbrano mapo in pogovorom
+  Future<int> triggerLearnPass({String? customFolder, bool silent = false}) async {
+    final prevOrb = orbState;
+    if (!silent && !isGenerating) {
+      orbState = OrbState.thinking;
+      notifyListeners();
+    }
+
+    final count = await memoryService.runIncrementalLearnPass(
+      workspacePath: customFolder ?? currentBrowserDirectory,
+      recentTurns: _sessionHistory,
+      llmExtractor: _runOneShotLearnSynthesis,
     );
-  }
 
-  void pinFileAndOpenVsCodeWindow(String filePath) {
-    pinnedFilePath = filePath;
-    openFileInEditorTab(filePath, autoOpenWindow: true);
-  }
-
-  void resetStackToHome() {
-    pinnedFolderPath = null;
-    pinnedFilePath = null;
-    searchQuery = '';
-    refreshDirectoryEntities(Directory.current.path);
-    _showToastBanner('STACK RETURNED TO HOME');
-  }
-
-  void updateSearchInPinnedFolder(String query) {
-    searchQuery = query;
-    onUserKeystroke(query);
-    final targetDir = pinnedFolderPath ?? workspaceRootPath;
-    currentFolderEntities =
-        listEntitiesForDirectory(targetDir, filter: searchQuery);
+    if (!silent && !isGenerating) {
+      orbState = prevOrb;
+    }
     notifyListeners();
+    return count;
   }
 
+  //**************
+  // Metode za vgrajeni VS Code kirurški urejevalnik kode *
+  //**************
   void toggleVsCodeWindow() {
     isVsCodeWindowOpen = !isVsCodeWindowOpen;
-    if (isVsCodeWindowOpen && openTabs.isEmpty) {
-      final fallback = File('$workspaceRootPath/lib/main.dart').existsSync()
-          ? '$workspaceRootPath/lib/main.dart'
-          : '$workspaceRootPath/README.md';
-      openFileInEditorTab(fallback, autoOpenWindow: true);
-    }
     notifyListeners();
   }
 
@@ -1088,209 +1295,285 @@ class UltronBrainRouter extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> openFileInEditorTab(
-    String filePath, {
-    bool autoOpenWindow = true,
-  }) async {
-    if (!isPathInsideWorkspace(filePath)) {
-      triggerErrorState('Blocked path traversal outside workspace root.');
-      return;
-    }
-
-    final existingIdx = openTabs.indexWhere((t) => t.filePath == filePath);
-    if (existingIdx >= 0) {
-      activeTabIndex = existingIdx;
-      if (autoOpenWindow) isVsCodeWindowOpen = true;
-      notifyListeners();
-      return;
-    }
-
+  Future<void> openFileInEditorTab(String filePath) async {
     try {
       final file = File(filePath);
-      if (!file.existsSync()) return;
-      final lines = file.readAsStringSync().split('\n');
-      final gitBadge = await _checkGitStatusForFile(filePath);
+      if (!await file.exists()) return;
+
+      final existingIdx =
+          openTabs.indexWhere((tab) => tab.filePath == file.path);
+      if (existingIdx != -1) {
+        activeTabIndex = existingIdx;
+        isVsCodeWindowOpen = true;
+        _scanActiveTabForSurgicalIssues();
+        notifyListeners();
+        return;
+      }
+
+      final bytes = await file.readAsBytes();
+      final text = utf8.decode(bytes, allowMalformed: true);
+      final lines = const LineSplitter().convert(text);
 
       openTabs.add(
         OpenEditorTab(
-          filePath: filePath,
-          lines: lines,
-          gitStatusBadge: gitBadge,
+          filePath: file.path,
+          fileName: _basename(file.path),
+          lines: lines.isEmpty ? [''] : lines,
         ),
       );
       activeTabIndex = openTabs.length - 1;
-      if (autoOpenWindow) isVsCodeWindowOpen = true;
+      activeCursorLine = 0;
+      isVsCodeWindowOpen = true;
+      _scanActiveTabForSurgicalIssues();
       notifyListeners();
     } catch (e) {
-      triggerErrorState('Failed to open file: $e');
+      debugPrint('Napaka pri odpiranju datoteke v urejevalniku: $e');
     }
+  }
+
+  void selectEditorTab(int index) {
+    if (index < 0 || index >= openTabs.length) return;
+    activeTabIndex = index;
+    _scanActiveTabForSurgicalIssues();
+    notifyListeners();
   }
 
   void closeEditorTab(int index) {
     if (index < 0 || index >= openTabs.length) return;
     openTabs.removeAt(index);
     if (activeTabIndex >= openTabs.length) {
-      activeTabIndex = (openTabs.length - 1).clamp(0, 99);
+      activeTabIndex = openTabs.isEmpty ? 0 : openTabs.length - 1;
     }
+    _scanActiveTabForSurgicalIssues();
     notifyListeners();
   }
 
-  Future<String> _checkGitStatusForFile(String filePath) async {
-    try {
-      final res = await Process.run(
-        'git',
-        ['status', '--porcelain', filePath],
-        workingDirectory: workspaceRootPath,
-      );
-      if (res.exitCode == 0) {
-        final out = res.stdout.toString().trim();
-        if (out.isEmpty) return 'CLEAN';
-        return out.substring(0, 2).trim();
-      }
-    } catch (_) {}
-    return 'CLEAN';
-  }
-
-  String _createPreEditBackupSnapshot(OpenEditorTab tab) {
-    final ts = DateTime.now().millisecondsSinceEpoch;
-    final backupPath =
-        '${memoryService.backupsDir.path}/${tab.fileName}.$ts.bak';
-    File(backupPath).writeAsStringSync(tab.lines.join('\n'));
-    tab.backupSnapshotPath = backupPath;
-    return backupPath;
-  }
-
-  void saveActiveTabContent(String newContent) {
+  void updateActiveTabText(String updatedContent) {
     final tab = activeTab;
     if (tab == null) return;
-    if (!isPathInsideWorkspace(tab.filePath)) {
-      triggerErrorState('Blocked write outside workspace.');
-      return;
+    tab.previousLinesSnapshot ??= List<String>.from(tab.lines);
+    tab.lines = const LineSplitter().convert(updatedContent);
+    if (tab.lines.isEmpty) tab.lines = [''];
+    tab.isDirty = true;
+    _scanActiveTabForSurgicalIssues();
+    notifyListeners();
+  }
+
+  Future<bool> saveActiveTabContent() async {
+    final tab = activeTab;
+    if (tab == null) return false;
+    try {
+      await File(tab.filePath).writeAsString(tab.lines.join('\n'));
+      tab.isDirty = false;
+      notifyListeners();
+      return true;
+    } catch (_) {
+      return false;
     }
-    _createPreEditBackupSnapshot(tab);
-    tab.lines = newContent.split('\n');
-    tab.isDirty = false;
-    tab.gitStatusBadge = 'M';
-    File(tab.filePath).writeAsStringSync(newContent);
-    if (!modifiedFilesInSession.contains(tab.fileName)) {
-      modifiedFilesInSession.add(tab.fileName);
-    }
-    _showToastBanner('SAVED ${tab.fileName}');
   }
 
   void undoLastEditOnActiveTab() {
     final tab = activeTab;
-    if (tab == null || tab.backupSnapshotPath == null) {
-      triggerErrorState('No backup snapshot available for this tab.');
+    if (tab == null || tab.previousLinesSnapshot == null) return;
+    tab.lines = List<String>.from(tab.previousLinesSnapshot!);
+    tab.previousLinesSnapshot = null;
+    tab.isDirty = true;
+    _scanActiveTabForSurgicalIssues();
+    notifyListeners();
+  }
+
+  void _scanActiveTabForSurgicalIssues() {
+    detectedIssues.clear();
+    final tab = activeTab;
+    if (tab == null) return;
+
+    for (int i = 0; i < tab.lines.length; i++) {
+      final line = tab.lines[i];
+      if (line.contains('print(') && tab.fileName.endsWith('.dart')) {
+        detectedIssues.add(
+          LiveCodeIssue(
+            id: 'issue_$i',
+            lineNumber: i + 1,
+            description: 'Zamenjaj print() z debugPrint() za produkcijsko kodo',
+            brokenLine: line,
+            surgicalFixLine: line.replaceFirst('print(', 'debugPrint('),
+          ),
+        );
+      } else if (line.contains('.withOpacity(') &&
+          tab.fileName.endsWith('.dart')) {
+        detectedIssues.add(
+          LiveCodeIssue(
+            id: 'opacity_$i',
+            lineNumber: i + 1,
+            description: 'Zastarel klic withOpacity()',
+            brokenLine: line,
+            surgicalFixLine:
+                line.replaceFirst('.withOpacity(', '.alphaPct('),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> fixIssueSurgicallyInPlace(LiveCodeIssue issue) async {
+    final tab = activeTab;
+    if (tab == null) return;
+    final idx = issue.lineNumber - 1;
+    if (idx < 0 || idx >= tab.lines.length) return;
+
+    tab.previousLinesSnapshot = List<String>.from(tab.lines);
+    tab.lines[idx] = issue.surgicalFixLine;
+    tab.isDirty = true;
+    issue.isFixed = true;
+    activeCursorLine = idx;
+    await saveActiveTabContent();
+    _scanActiveTabForSurgicalIssues();
+    notifyListeners();
+  }
+
+  void acceptDiffHunk(String id) {
+    pendingDiffHunks.removeWhere((h) => h.id == id);
+    notifyListeners();
+  }
+
+  void rejectDiffHunk(String id) {
+    pendingDiffHunks.removeWhere((h) => h.id == id);
+    notifyListeners();
+  }
+
+  Future<void> openActiveFileInRealVsCode() async {
+    final path = activeFilePath.isNotEmpty
+        ? activeFilePath
+        : currentBrowserDirectory;
+    try {
+      await Process.start('code', [path], runInShell: true);
+    } catch (_) {}
+  }
+
+  //**************
+  // GitHub in spletne povezave *
+  //**************
+  Future<void> connectGithubWithToken(String token) async {
+    githubToken = token.trim();
+    if (githubToken.isEmpty) {
+      isGithubConnected = false;
+      githubUsername = '';
+      await saveRouterConfig();
+      notifyListeners();
       return;
     }
-    final bak = File(tab.backupSnapshotPath!);
-    if (!bak.existsSync()) return;
-    final restored = bak.readAsStringSync();
-    tab.lines = restored.split('\n');
-    File(tab.filePath).writeAsStringSync(restored);
-    _showToastBanner('RESTORED ${tab.fileName} FROM BACKUP');
-  }
 
-  void acceptDiffHunk(DiffHunkProposal hunk) {
-    final tabIdx = openTabs.indexWhere((t) => t.filePath == hunk.filePath);
-    if (tabIdx >= 0) {
-      final tab = openTabs[tabIdx];
-      _createPreEditBackupSnapshot(tab);
-      final prefix = tab.lines
-          .sublist(0, (hunk.startLine - 1).clamp(0, tab.lines.length));
-      tab.lines = [...prefix, ...hunk.proposedLines];
-      tab.gitStatusBadge = 'M';
-      File(tab.filePath).writeAsStringSync(tab.lines.join('\n'));
-      if (!modifiedFilesInSession.contains(tab.fileName)) {
-        modifiedFilesInSession.add(tab.fileName);
-      }
-    }
-    hunk.isAccepted = true;
-    pendingDiffHunks.remove(hunk);
-    _showToastBanner('DIFF ACCEPTED & WRITTEN TO DISK');
-  }
-
-  void rejectDiffHunk(DiffHunkProposal hunk) {
-    hunk.isRejected = true;
-    pendingDiffHunks.remove(hunk);
-    _showToastBanner('DIFF REJECTED');
-  }
-
-  Future<void> openActiveFileInRealVsCode({int line = 1}) async {
-    final target = activeTab?.filePath ?? workspaceRootPath;
+    final client = HttpClient();
     try {
-      if (Platform.isLinux) {
-        try {
-          final r1 = await Process.run('code-oss', ['--goto', '$target:$line']);
-          if (r1.exitCode == 0) {
-            _showToastBanner('OPENED IN CODE-OSS ($target:$line)');
-            return;
-          }
-        } catch (_) {}
-        await Process.run('gio', ['launch', vsCodeDesktopPath, target]);
-      } else if (Platform.isWindows) {
-        await Process.run('cmd', ['/c', 'code', '--goto', '$target:$line']);
+      final req =
+          await client.getUrl(Uri.https('api.github.com', '/user'));
+      req.headers.set('Authorization', 'Bearer $githubToken');
+      req.headers.set('User-Agent', 'Ultron-Neural-Core');
+      final res = await req.close();
+      if (res.statusCode == 200) {
+        final data = jsonDecode(await res.transform(utf8.decoder).join());
+        githubUsername = data['login']?.toString() ?? 'GitHub User';
+        isGithubConnected = true;
+        await saveRouterConfig();
+        await fetchGithubRepos();
       }
-      _showToastBanner('LAUNCHED $vsCodeDesktopPath');
-    } catch (e) {
-      triggerErrorState('Failed to launch Code-OSS: $e');
+    } catch (_) {
+    } finally {
+      client.close();
+      notifyListeners();
     }
   }
 
-  Future<void> openWebUrl(String rawUrl) async {
-    final url = rawUrl.trim();
-    if (url.isEmpty) return;
+  Future<void> startGithubDeviceFlow() async {
+    await openWebUrl('https://github.com/settings/tokens');
+  }
+
+  Future<void> fetchGithubRepos() async {
+    if (githubToken.isEmpty) return;
+    isFetchingRepos = true;
+    notifyListeners();
+
+    final client = HttpClient();
     try {
-      if (Platform.isLinux) {
+      final req = await client.getUrl(
+        Uri.https('api.github.com', '/user/repos', {
+          'sort': 'updated',
+          'per_page': '25',
+        }),
+      );
+      req.headers.set('Authorization', 'Bearer $githubToken');
+      req.headers.set('User-Agent', 'Ultron-Neural-Core');
+      final res = await req.close();
+
+      final rem = res.headers.value('x-ratelimit-remaining');
+      final lim = res.headers.value('x-ratelimit-limit');
+      if (rem != null) githubRateLimitRemaining = int.tryParse(rem) ?? 60;
+      if (lim != null) githubRateLimitTotal = int.tryParse(lim) ?? 60;
+
+      if (res.statusCode == 200) {
+        final list =
+            jsonDecode(await res.transform(utf8.decoder).join()) as List;
+        githubRepos
+          ..clear()
+          ..addAll(list.whereType<Map<String, dynamic>>().map((r) {
+            return GitHubRepoEntry(
+              name: r['name']?.toString() ?? '',
+              fullName: r['full_name']?.toString() ?? '',
+              cloneUrl: r['clone_url']?.toString() ?? '',
+              htmlUrl: r['html_url']?.toString() ?? '',
+              isPrivate: r['private'] == true,
+            );
+          }));
+      }
+    } catch (_) {
+    } finally {
+      client.close();
+      isFetchingRepos = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> cloneRepoToDesktop(String cloneUrl) async {
+    try {
+      final res = await Process.run(
+        'git',
+        ['clone', cloneUrl],
+        workingDirectory: currentBrowserDirectory,
+        runInShell: true,
+      );
+      notifyListeners();
+      return res.exitCode == 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  void connectJulesApi(String key) {
+    isJulesConnected = key.trim().isNotEmpty;
+    notifyListeners();
+  }
+
+  Future<void> openWebUrl(String url) async {
+    try {
+      if (Platform.isWindows) {
+        await Process.run('cmd', ['/c', 'start', '', url], runInShell: true);
+      } else if (Platform.isLinux) {
         await Process.run('xdg-open', [url]);
-      } else if (Platform.isWindows) {
-        await Process.run('rundll32', ['url.dll,FileProtocolHandler', url]);
+      } else if (Platform.isMacOS) {
+        await Process.run('open', [url]);
       }
     } catch (_) {}
   }
 
-  Future<void> cloneRepoToDesktop(GitHubRepoEntry repo) async {
-    final target = '$desktopProjectsDir/${repo.name}';
-    _showToastBanner('CLONING ${repo.fullName}...');
-    try {
-      final root = Directory(desktopProjectsDir);
-      if (!root.existsSync()) root.createSync(recursive: true);
-      if (!Directory(target).existsSync()) {
-        await Process.run(
-            'git', ['clone', '--depth', '1', repo.cloneUrl, target]);
-      }
-      repo.isCloned = true;
-      repo.localPath = target;
-      pinFolderOnTop(target);
-      isVsCodeWindowOpen = true;
-      _showToastBanner('CLONED & MOUNTED ${repo.name}');
-    } catch (e) {
-      triggerErrorState('Git clone failed: $e');
-    }
+  String _basename(String path) {
+    final idx = path.lastIndexOf(Platform.pathSeparator);
+    return idx == -1 ? path : path.substring(idx + 1);
   }
 
-  void _appendTurn({
-    required String sender,
-    required String model,
-    required String level,
-    required String text,
-  }) {
-    chatHistory.add(
-      ChatTurnRecord(
-        timestamp: DateTime.now(),
-        sender: sender,
-        modelUsed: model,
-        thinkingLevel: level,
-        text: text,
-      ),
-    );
-    notifyListeners();
-  }
-}
-
-extension _StringWordsExt on String {
-  String takeWords(int count) {
-    return split(RegExp(r'\s+')).take(count).join('-');
+  String _extension(String path) {
+    final dot = path.lastIndexOf('.');
+    final sep = path.lastIndexOf(Platform.pathSeparator);
+    if (dot == -1 || dot < sep) return '';
+    return path.substring(dot).toLowerCase();
   }
 }

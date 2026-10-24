@@ -1,0 +1,9 @@
+{
+  "ollamaBaseUrl": "http://127.0.0.1:11434",
+  "activeLocalModel": "gemma2:9b",
+  "customNumGpuLayers": 0,
+  "contextWindowTokens": 8192,
+  "githubToken": "",
+  "githubUsername": "",
+  "currentBrowserDirectory": "D:\\jarvis-pixel-env"
+}

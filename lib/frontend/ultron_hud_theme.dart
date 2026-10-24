@@ -1,18 +1,28 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 
-//**********************************************************************
-// MODERN CYBER-BLUE DARK HUD THEME                                    *
-// Deep sapphire/midnight navy surfaces (#040814) with crisp ice-blue  *
-// (#38BDF8) and electric azure (#0284C7) accents.                     *
-//**********************************************************************
+//**************
+// Pomožna razširitev za varno in hitro računanje prosojnosti barv *
+// Deluje brez opozoril na vseh različicah Flutter SDK *
+//**************
+extension UltronColorAlpha on Color {
+  Color alphaPct(double opacity) {
+    final int alphaChannel = (opacity.clamp(0.0, 1.0) * 255).round();
+    return withAlpha(alphaChannel);
+  }
+}
 
+//**************
+// Tema vmesnika Ultron HUD s podporo za temni in svetli način *
+// Zasnovana minimalistično s čistimi linijami in subtilnimi poudarki *
+//**************
 @immutable
 class UltronHudTheme extends ThemeExtension<UltronHudTheme> {
   final Color bgDeep;
   final Color bgPanel;
   final Color bgInput;
-  final Color primaryPeriwinkle; // Kept field name for compatibility (now Ice Blue)
-  final Color secondaryVioletBloom; // Now Deep Sapphire Blue Bloom
+  final Color primaryPeriwinkle;
+  final Color secondaryVioletBloom;
   final Color accentErrorRed;
   final Color accentSuccessGreen;
   final Color accentWarningAmber;
@@ -33,62 +43,75 @@ class UltronHudTheme extends ThemeExtension<UltronHudTheme> {
     required this.textPrimary,
     required this.textMuted,
     required this.borderLine,
-    this.cutRadius = 4.0,
+    this.cutRadius = 8.0,
   });
 
+  // Temna minimalistična cyber-HUD paleta
   static const UltronHudTheme dark = UltronHudTheme(
-    bgDeep: Color(0xFF040814),
-    bgPanel: Color(0xFF081124),
-    bgInput: Color(0xFF060D1C),
-    primaryPeriwinkle: Color(0xFF38BDF8),
-    secondaryVioletBloom: Color(0xFF0284C7),
-    accentErrorRed: Color(0xFFF43F5E),
-    accentSuccessGreen: Color(0xFF10B981),
-    accentWarningAmber: Color(0xFFF59E0B),
-    textPrimary: Color(0xFFE2F1FF),
-    textMuted: Color(0xFF6482A6),
-    borderLine: Color(0xFF152C4F),
-    cutRadius: 4.0,
+    bgDeep: Color(0xFF070A12),
+    bgPanel: Color(0xFF0E1322),
+    bgInput: Color(0xFF131A2E),
+    primaryPeriwinkle: Color(0xFF8EA8FF),
+    secondaryVioletBloom: Color(0xFF7B68EE),
+    accentErrorRed: Color(0xFFFF5C77),
+    accentSuccessGreen: Color(0xFF3EE0A1),
+    accentWarningAmber: Color(0xFFFFBE55),
+    textPrimary: Color(0xFFEDF2FF),
+    textMuted: Color(0xFF8694B8),
+    borderLine: Color(0xFF222D4A),
+    cutRadius: 8.0,
   );
 
+  // Svetla minimalistična paleta z ohranjenim kontrastom
   static const UltronHudTheme light = UltronHudTheme(
-    bgDeep: Color(0xFFF0F6FC),
+    bgDeep: Color(0xFFF3F6FC),
     bgPanel: Color(0xFFFFFFFF),
-    bgInput: Color(0xFFF8FAFC),
-    primaryPeriwinkle: Color(0xFF0284C7),
-    secondaryVioletBloom: Color(0xFF2563EB),
-    accentErrorRed: Color(0xFFE11D48),
-    accentSuccessGreen: Color(0xFF059669),
-    accentWarningAmber: Color(0xFFD97706),
-    textPrimary: Color(0xFF0F172A),
-    textMuted: Color(0xFF475569),
-    borderLine: Color(0xFFCBD5E1),
-    cutRadius: 4.0,
+    bgInput: Color(0xFFEAF0FA),
+    primaryPeriwinkle: Color(0xFF4263EB),
+    secondaryVioletBloom: Color(0xFF6741D9),
+    accentErrorRed: Color(0xFFE03131),
+    accentSuccessGreen: Color(0xFF0CA678),
+    accentWarningAmber: Color(0xFFF08C00),
+    textPrimary: Color(0xFF141B2D),
+    textMuted: Color(0xFF5C6B8A),
+    borderLine: Color(0xFFD5DFEF),
+    cutRadius: 8.0,
   );
 
-  static ThemeData buildThemeData(bool isDark) {
-    final ext = isDark ? dark : light;
+  // Ustvari celoten ThemeData objekt za MaterialApp
+  static ThemeData buildThemeData({required bool isDark}) {
+    final hud = isDark ? dark : light;
+    final brightness = isDark ? Brightness.dark : Brightness.light;
+
     return ThemeData(
       useMaterial3: true,
-      brightness: isDark ? Brightness.dark : Brightness.light,
-      scaffoldBackgroundColor: ext.bgDeep,
-      fontFamily: 'monospace',
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: ext.primaryPeriwinkle,
-        brightness: isDark ? Brightness.dark : Brightness.light,
-        surface: ext.bgPanel,
-        primary: ext.primaryPeriwinkle,
-        secondary: ext.secondaryVioletBloom,
-        error: ext.accentErrorRed,
+      brightness: brightness,
+      scaffoldBackgroundColor: hud.bgDeep,
+      colorScheme: ColorScheme(
+        brightness: brightness,
+        primary: hud.primaryPeriwinkle,
+        onPrimary: isDark ? const Color(0xFF070A12) : Colors.white,
+        secondary: hud.secondaryVioletBloom,
+        onSecondary: Colors.white,
+        error: hud.accentErrorRed,
+        onError: Colors.white,
+        surface: hud.bgPanel,
+        onSurface: hud.textPrimary,
       ),
-      extensions: <ThemeExtension<dynamic>>[ext],
+      dividerColor: hud.borderLine,
+      splashFactory: InkRipple.splashFactory,
+      extensions: <ThemeExtension<dynamic>>[hud],
     );
   }
 
-  ShapeBorder chamferShape({Color? borderColor, double width = 1.0}) {
-    return RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(cutRadius),
-      side: BorderSide(color: borderColor ?? borderLine, width: width),
+  // Prilagojena oblika s posnetimi robovi za minimalističen HUD videz
+  ShapeBorder chamferShape({Color? sideColor, double width = 1.0}) {
+    return BeveledRectangleBorder(
+      borderRadius: BorderRadius.circular(cutRadius * 0.55),
+      side: BorderSide(
+        color: sideColor ?? borderLine,
+        width: width,
+      ),
     );
   }
 
@@ -142,23 +165,28 @@ class UltronHudTheme extends ThemeExtension<UltronHudTheme> {
       textPrimary: Color.lerp(textPrimary, other.textPrimary, t)!,
       textMuted: Color.lerp(textMuted, other.textMuted, t)!,
       borderLine: Color.lerp(borderLine, other.borderLine, t)!,
-      cutRadius: cutRadius,
+      cutRadius: lerpDouble(cutRadius, other.cutRadius, t) ?? cutRadius,
     );
   }
 }
 
+//**************
+// Minimalističen HUD panel s subtilnimi kotnimi poudarki in hover animacijo *
+//**************
 class HudBracketPanel extends StatefulWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
   final Color? borderColor;
   final Color? fillColor;
+  final bool interactiveHover;
 
   const HudBracketPanel({
     super.key,
     required this.child,
-    this.padding = const EdgeInsets.all(12),
+    this.padding = const EdgeInsets.all(14),
     this.borderColor,
     this.fillColor,
+    this.interactiveHover = false,
   });
 
   @override
@@ -172,76 +200,86 @@ class _HudBracketPanelState extends State<HudBracketPanel> {
   Widget build(BuildContext context) {
     final hud =
         Theme.of(context).extension<UltronHudTheme>() ?? UltronHudTheme.dark;
-    final baseCol = widget.borderColor ?? hud.borderLine;
-    final activeBorder = _hovered
-        ? Color.lerp(baseCol, hud.primaryPeriwinkle, 0.55)!
-        : baseCol;
+    final effectiveBorder = widget.borderColor ??
+        (_hovered
+            ? hud.primaryPeriwinkle.alphaPct(0.55)
+            : hud.borderLine.alphaPct(0.85));
+    final effectiveFill = widget.fillColor ?? hud.bgPanel.alphaPct(0.88);
+
+    Widget content = AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+      padding: widget.padding,
+      decoration: BoxDecoration(
+        color: effectiveFill,
+        borderRadius: BorderRadius.circular(hud.cutRadius),
+        border: Border.all(color: effectiveBorder, width: 1.0),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.alphaPct(0.16),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: CustomPaint(
+        painter: _CornerBracketAccentsPainter(
+          color: hud.primaryPeriwinkle.alphaPct(_hovered ? 0.65 : 0.30),
+        ),
+        child: widget.child,
+      ),
+    );
+
+    if (!widget.interactiveHover) return content;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
-      child: CustomPaint(
-        foregroundPainter: _CornerBracketPainter(
-          bracketColor: hud.primaryPeriwinkle,
-          bracketLength: _hovered ? 9.0 : 6.0,
-        ),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 140),
-          curve: Curves.easeOutCubic,
-          padding: widget.padding,
-          decoration: ShapeDecoration(
-            color: widget.fillColor ?? hud.bgPanel.withValues(alpha: 0.94),
-            shape: hud.chamferShape(borderColor: activeBorder, width: 1.0),
-          ),
-          child: widget.child,
-        ),
-      ),
+      child: content,
     );
   }
 }
 
-class _CornerBracketPainter extends CustomPainter {
-  final Color bracketColor;
-  final double bracketLength;
+class _CornerBracketAccentsPainter extends CustomPainter {
+  final Color color;
 
-  const _CornerBracketPainter({
-    required this.bracketColor,
-    this.bracketLength = 6.0,
-  });
+  const _CornerBracketAccentsPainter({required this.color});
 
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = bracketColor.withValues(alpha: 0.80)
-      ..strokeWidth = 1.4
+      ..color = color
+      ..strokeWidth = 1.2
       ..style = PaintingStyle.stroke;
 
-    final len = bracketLength;
-    canvas.drawLine(Offset.zero, Offset(len, 0), paint);
-    canvas.drawLine(Offset.zero, Offset(0, len), paint);
-    canvas.drawLine(Offset(size.width, 0), Offset(size.width - len, 0), paint);
-    canvas.drawLine(Offset(size.width, 0), Offset(size.width, len), paint);
-    canvas.drawLine(Offset(0, size.height), Offset(len, size.height), paint);
+    const double len = 6.0;
+    // Zgornji levi kot
+    canvas.drawLine(const Offset(0, len), Offset.zero, paint);
+    canvas.drawLine(Offset.zero, const Offset(len, 0), paint);
+    // Spodnji desni kot
     canvas.drawLine(
-        Offset(0, size.height), Offset(0, size.height - len), paint);
-    canvas.drawLine(Offset(size.width, size.height),
-        Offset(size.width - len, size.height), paint);
-    canvas.drawLine(Offset(size.width, size.height),
-        Offset(size.width, size.height - len), paint);
+        Offset(size.width - len, size.height), Offset(size.width, size.height), paint);
+    canvas.drawLine(
+        Offset(size.width, size.height - len), Offset(size.width, size.height), paint);
   }
 
   @override
-  bool shouldRepaint(covariant _CornerBracketPainter oldDelegate) =>
-      oldDelegate.bracketColor != bracketColor ||
-      oldDelegate.bracketLength != bracketLength;
+  bool shouldRepaint(covariant _CornerBracketAccentsPainter oldDelegate) {
+    return oldDelegate.color != color;
+  }
 }
 
+//**************
+// Interaktivni gumb z mikro-animacijo ob prehodu z miško in kliku *
+//**************
 class HudActionButton extends StatefulWidget {
   final String label;
   final IconData? icon;
   final VoidCallback? onTap;
   final Color? accentColor;
   final bool isPrimaryAccent;
+  final bool compact;
+  final String? badgeText;
 
   const HudActionButton({
     super.key,
@@ -250,6 +288,8 @@ class HudActionButton extends StatefulWidget {
     this.onTap,
     this.accentColor,
     this.isPrimaryAccent = false,
+    this.compact = false,
+    this.badgeText,
   });
 
   @override
@@ -264,40 +304,44 @@ class _HudActionButtonState extends State<HudActionButton> {
   Widget build(BuildContext context) {
     final hud =
         Theme.of(context).extension<UltronHudTheme>() ?? UltronHudTheme.dark;
-    final col = widget.accentColor ??
-        (widget.isPrimaryAccent ? hud.secondaryVioletBloom : hud.primaryPeriwinkle);
+    final accent = widget.accentColor ?? hud.primaryPeriwinkle;
+    final enabled = widget.onTap != null;
 
-    final scale = _pressed ? 0.97 : (_hovered ? 1.02 : 1.0);
+    final Color bgColor = widget.isPrimaryAccent
+        ? accent.alphaPct(_hovered ? 0.24 : 0.15)
+        : (_hovered ? hud.bgInput.alphaPct(0.95) : hud.bgPanel.alphaPct(0.65));
+
+    final Color borderColor = widget.isPrimaryAccent || _hovered
+        ? accent.alphaPct(_hovered ? 0.80 : 0.45)
+        : hud.borderLine.alphaPct(0.85);
 
     return MouseRegion(
+      cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() {
         _hovered = false;
         _pressed = false;
       }),
-      cursor: SystemMouseCursors.click,
       child: GestureDetector(
-        onTapDown: (_) => setState(() => _pressed = true),
-        onTapUp: (_) => setState(() => _pressed = false),
-        onTapCancel: () => setState(() => _pressed = false),
+        onTapDown: enabled ? (_) => setState(() => _pressed = true) : null,
+        onTapUp: enabled ? (_) => setState(() => _pressed = false) : null,
+        onTapCancel: enabled ? () => setState(() => _pressed = false) : null,
         onTap: widget.onTap,
         child: AnimatedScale(
-          scale: scale,
-          duration: const Duration(milliseconds: 110),
+          scale: _pressed ? 0.96 : (_hovered ? 1.02 : 1.0),
+          duration: const Duration(milliseconds: 130),
           curve: Curves.easeOutCubic,
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 120),
-            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
-            decoration: ShapeDecoration(
-              color: _hovered
-                  ? col.withValues(alpha: 0.25)
-                  : (widget.isPrimaryAccent
-                      ? col.withValues(alpha: 0.18)
-                      : hud.bgInput),
-              shape: hud.chamferShape(
-                borderColor: _hovered ? Colors.white : col.withValues(alpha: 0.85),
-                width: 1.0,
-              ),
+            duration: const Duration(milliseconds: 160),
+            curve: Curves.easeOutCubic,
+            padding: EdgeInsets.symmetric(
+              horizontal: widget.compact ? 9 : 12,
+              vertical: widget.compact ? 6 : 7,
+            ),
+            decoration: BoxDecoration(
+              color: enabled ? bgColor : hud.bgPanel.alphaPct(0.35),
+              borderRadius: BorderRadius.circular(7),
+              border: Border.all(color: borderColor, width: 1.0),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -305,21 +349,51 @@ class _HudActionButtonState extends State<HudActionButton> {
                 if (widget.icon != null) ...[
                   Icon(
                     widget.icon,
-                    size: 13,
-                    color: _hovered ? Colors.white : col,
+                    size: widget.compact ? 14 : 15,
+                    color: enabled
+                        ? (_hovered || widget.isPrimaryAccent
+                            ? accent
+                            : hud.textMuted)
+                        : hud.textMuted.alphaPct(0.45),
                   ),
-                  const SizedBox(width: 6),
+                  if (widget.label.isNotEmpty) const SizedBox(width: 6),
                 ],
-                Text(
-                  widget.label.toUpperCase(),
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.9,
-                    color:
-                        (widget.isPrimaryAccent || _hovered) ? Colors.white : col,
+                if (widget.label.isNotEmpty)
+                  Text(
+                    widget.label,
+                    style: TextStyle(
+                      fontSize: widget.compact ? 11.5 : 12.0,
+                      fontWeight: widget.isPrimaryAccent
+                          ? FontWeight.w600
+                          : FontWeight.w500,
+                      letterSpacing: 0.2,
+                      color: enabled
+                          ? (_hovered || widget.isPrimaryAccent
+                              ? hud.textPrimary
+                              : hud.textPrimary.alphaPct(0.88))
+                          : hud.textMuted.alphaPct(0.45),
+                    ),
                   ),
-                ),
+                if (widget.badgeText != null &&
+                    widget.badgeText!.isNotEmpty) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: accent.alphaPct(0.22),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      widget.badgeText!,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: accent,
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
