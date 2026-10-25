@@ -3,10 +3,6 @@ import 'package:flutter/material.dart';
 import '../backend/ultron_brain_router.dart';
 import 'ultron_hud_theme.dart';
 
-//**************
-// Minimalističen razširljiv File Manager za brskanje po celotnem računalniku *
-// Združljiv s privzetim načinom brez aktivnega projekta ter ustvarjanjem datotek/map *
-//**************
 class FuturisticHoverFileStack extends StatefulWidget {
   final UltronBrainRouter brain;
   final bool isDarkMode;
@@ -209,6 +205,101 @@ class _FuturisticHoverFileStackState extends State<FuturisticHoverFileStack> {
     return Icons.insert_drive_file_outlined;
   }
 
+  // --- NOVA METODA ZA DIALOG O CILJNEM UČENJU ---
+  void _showTargetedLearnDialog(String targetPath) {
+    final ctrl = TextEditingController();
+    bool isGlobalRule = false; // Privzeto za projekt, če je aktiviran
+    
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        final hud = Theme.of(ctx).extension<UltronHudTheme>() ?? UltronHudTheme.dark;
+        return StatefulBuilder(
+          builder: (ctx, setStateDialog) {
+            return AlertDialog(
+              backgroundColor: hud.bgPanel,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(hud.cutRadius)),
+              title: Text(
+                'Ciljno Učenje iz datoteke',
+                style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: hud.textPrimary),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Kaj naj si ULTRON zapomni iz:\n${_entityName(targetPath)}?',
+                    style: TextStyle(fontSize: 12, color: hud.textMuted),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: ctrl,
+                    autofocus: true,
+                    style: TextStyle(fontSize: 12.5, color: hud.textPrimary),
+                    maxLines: 3,
+                    decoration: InputDecoration(
+                      filled: true,
+                      fillColor: hud.bgInput,
+                      hintText: 'Npr. "Zapomni si slog in strukturo API klicev v tem projektu."',
+                      hintStyle: TextStyle(fontSize: 11, color: hud.textMuted),
+                      border: OutlineInputBorder(
+                          borderSide: BorderSide(color: hud.borderLine)),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Switch(
+                        value: isGlobalRule,
+                        activeTrackColor: hud.accentSuccessGreen,
+                        activeThumbColor: Colors.white,
+                        onChanged: (v) => setStateDialog(() => isGlobalRule = v),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        isGlobalRule ? 'Globalno (velja povsod)' : 'Samo za ta projekt',
+                        style: TextStyle(fontSize: 11.5, color: hud.textPrimary),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: Text('Prekliči', style: TextStyle(color: hud.textMuted)),
+                ),
+                TextButton(
+                  onPressed: () {
+                    final instr = ctrl.text.trim();
+                    if (instr.isNotEmpty) {
+                      widget.brain.triggerTargetedLearn(
+                        filePaths: [targetPath],
+                        instruction: instr,
+                        isGlobal: isGlobalRule,
+                      );
+                    }
+                    Navigator.pop(ctx);
+                  },
+                  child: Text(
+                    'Nauči se',
+                    style: TextStyle(
+                        color: hud.primaryPeriwinkle,
+                        fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final hud =
@@ -356,30 +447,6 @@ class _FuturisticHoverFileStackState extends State<FuturisticHoverFileStack> {
                         _createFolderMode =
                             _createFolderMode == true ? null : true;
                       }),
-                    ),
-                    IconButton(
-                      tooltip: 'Nauči se iz trenutne mape (Learn)',
-                      visualDensity: VisualDensity.compact,
-                      padding: EdgeInsets.zero,
-                      constraints:
-                          const BoxConstraints(minWidth: 25, minHeight: 25),
-                      icon: Icon(
-                        Icons.psychology_alt,
-                        size: 15,
-                        color: hud.accentSuccessGreen,
-                      ),
-                      onPressed: () async {
-                        widget.onStatusToast
-                            ?.call('Učim se iz izbrane mape...');
-                        final count = await widget.brain.triggerLearnPass(
-                          customFolder: widget.brain.currentBrowserDirectory,
-                        );
-                        widget.onStatusToast?.call(
-                          count > 0
-                              ? 'Learn zaključen: +$count novih pravil'
-                              : 'Learn posodobljen za to mapo',
-                        );
-                      },
                     ),
                     IconButton(
                       tooltip: _showHidden
@@ -711,6 +778,7 @@ class _FuturisticHoverFileStackState extends State<FuturisticHoverFileStack> {
                                     );
                                   }
                                 },
+                                onTargetedLearnTap: () => _showTargetedLearnDialog(entity.path),
                               );
                             },
                           ),
@@ -788,6 +856,7 @@ class _FileEntryTile extends StatefulWidget {
   final VoidCallback onPrimaryTap;
   final VoidCallback? onSetProjectTap;
   final VoidCallback? onAttachTap;
+  final VoidCallback? onTargetedLearnTap; // NOVA AKCIJA
 
   const _FileEntryTile({
     required this.name,
@@ -797,6 +866,7 @@ class _FileEntryTile extends StatefulWidget {
     required this.onPrimaryTap,
     this.onSetProjectTap,
     this.onAttachTap,
+    this.onTargetedLearnTap,
   });
 
   @override
@@ -878,6 +948,22 @@ class _FileEntryTileState extends State<_FileEntryTile> {
                         Icons.my_location_rounded,
                         size: 13.5,
                         color: hud.accentSuccessGreen,
+                      ),
+                    ),
+                  ),
+                ),
+              if (_hovered && widget.onTargetedLearnTap != null)
+                Tooltip(
+                  message: 'Ciljno Učenje: Nauči ULTRON pravila iz te datoteke',
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(4),
+                    onTap: widget.onTargetedLearnTap,
+                    child: Padding(
+                      padding: const EdgeInsets.all(3),
+                      child: Icon(
+                        Icons.psychology_alt,
+                        size: 14,
+                        color: hud.accentWarningAmber,
                       ),
                     ),
                   ),

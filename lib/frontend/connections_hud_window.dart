@@ -4,12 +4,6 @@ import '../backend/memory_learning_usage_service.dart';
 import '../backend/ultron_brain_router.dart';
 import 'ultron_hud_theme.dart';
 
-//**************
-// Osrednje nastavitveno in povezovalno okno ULTRON: *
-// 1. Lokalni LLM skener, nastavitve GPU slojev (num_gpu) in kontekstnega okna (num_ctx) *
-// 2. Pregled in urejanje naučenih pravil (Learn Vault) *
-// 3. Moderno GitHub prijavno okno (1-Klik Sistem/CLI, Device Flow koda, PAT) + Repo Manager *
-//**************
 class ConnectionsHudWindow extends StatefulWidget {
   final UltronBrainRouter brain;
   final VoidCallback onClose;
@@ -30,10 +24,13 @@ class ConnectionsHudWindow extends StatefulWidget {
 
 class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
   late int _tabIndex;
-  int _ghAuthModeIndex = 0; // 0 = 1-Klik Sistem & Žeton, 1 = Device Flow Brskalnik
+  int _ghAuthModeIndex = 0; 
   bool _obscureToken = true;
   String _repoSearchQuery = '';
-  int _repoVisibilityFilter = 0; // 0 = Vsi, 1 = Zasebni, 2 = Javni
+  int _repoVisibilityFilter = 0; 
+
+  // NOVO ZA CILJNO UÄŚENJE:
+  bool _isManualRuleGlobal = true;
 
   late final TextEditingController _ollamaUrlCtrl;
   late final TextEditingController _ghTokenCtrl;
@@ -91,7 +88,7 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
                       const SizedBox(width: 9),
                       Expanded(
                         child: Text(
-                          'ULTRON · Modeli, Learn Vault & GitHub',
+                          'ULTRON Â· Modeli, Learn Vault & GitHub',
                           style: TextStyle(
                             fontSize: 14.5,
                             fontWeight: FontWeight.w700,
@@ -167,9 +164,6 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
     );
   }
 
-  //**************
-  // Zavihek 0: Skener lokalnih LLM-jev ter nastavitve VRAM slojev in konteksta *
-  //**************
   Widget _buildLocalLlmTab(UltronHudTheme hud) {
     final models = widget.brain.discoveredModels;
     const ctxPresets = [2048, 4096, 6144, 8192, 16384];
@@ -193,8 +187,8 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
             Expanded(
               child: Text(
                 widget.brain.isOllamaOnline
-                    ? 'Ollama strežnik aktiven (${models.length} zaznanih modelov na PC-ju)'
-                    : 'Ollama strežnik ni dosegljiv',
+                    ? 'Ollama streĹľnik aktiven (${models.length} zaznanih modelov na PC-ju)'
+                    : 'Ollama streĹľnik ni dosegljiv',
                 style: TextStyle(fontSize: 12.5, color: hud.textPrimary),
               ),
             ),
@@ -202,7 +196,7 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
               Padding(
                 padding: const EdgeInsets.only(right: 8),
                 child: HudActionButton(
-                  label: 'Zaženi Ollama strežnik',
+                  label: 'ZaĹľeni Ollama streĹľnik',
                   icon: Icons.auto_awesome,
                   compact: true,
                   accentColor: hud.accentSuccessGreen,
@@ -252,7 +246,7 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
             if (widget.brain.detectedDiskModelsFolder != null) ...[
               const SizedBox(width: 8),
               HudActionButton(
-                label: 'Poveži Disk modele',
+                label: 'PoveĹľi Disk modele',
                 compact: true,
                 onTap: () => widget.brain.startLocalOllamaServer(
                   customModelsPath: widget.brain.detectedDiskModelsFolder,
@@ -332,7 +326,7 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
         ),
         const SizedBox(height: 14),
         Text(
-          'Zaznani lokalni modeli na tem računalniku:',
+          'Zaznani lokalni modeli na tem raÄŤunalniku:',
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w600,
@@ -344,7 +338,7 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
           Padding(
             padding: const EdgeInsets.all(16),
             child: Text(
-              'Noben lokalni model še ni bil zaznan. Klikni "Skeniraj PC".',
+              'Noben lokalni model Ĺˇe ni bil zaznan. Klikni "Skeniraj PC".',
               style: TextStyle(fontSize: 12, color: hud.textMuted),
             ),
           )
@@ -401,9 +395,6 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
     );
   }
 
-  //**************
-  // Zavihek 1: Pregled in dodajanje naučenih pravil (Learn Vault) *
-  //**************
   Widget _buildLearnVaultTab(UltronHudTheme hud) {
     final mem = widget.brain.memoryService;
 
@@ -425,13 +416,14 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
                     style: TextStyle(fontSize: 11.5, color: hud.textMuted)),
                 Switch(
                   value: mem.autoLearnEnabled,
+                  activeTrackColor: hud.accentSuccessGreen,
                   onChanged: mem.setAutoLearn,
                 ),
               ],
             ),
             const SizedBox(width: 6),
             HudActionButton(
-              label: mem.isLearningNow ? 'Učim se...' : 'Zaženi Learn zdaj',
+              label: mem.isLearningNow ? 'UÄŤim se...' : 'ZaĹľeni Learn zdaj',
               icon: Icons.psychology_alt,
               isPrimaryAccent: true,
               accentColor: hud.accentSuccessGreen,
@@ -442,6 +434,30 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
           ],
         ),
         const SizedBox(height: 8),
+
+        // --- NOVA VRSTICA ZA CILJNO UÄŚENJE (GLOBALNO/PROJEKTNO) ---
+        Row(
+          children: [
+            HudActionButton(
+              label: 'Globalno pravilo',
+              icon: Icons.public_rounded,
+              compact: true,
+              isPrimaryAccent: _isManualRuleGlobal,
+              onTap: () => setState(() => _isManualRuleGlobal = true),
+            ),
+            const SizedBox(width: 6),
+            HudActionButton(
+              label: 'Samo ta projekt',
+              icon: Icons.folder_special_rounded,
+              compact: true,
+              isPrimaryAccent: !_isManualRuleGlobal,
+              onTap: () => setState(() => _isManualRuleGlobal = false),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        // ------------------------------------------------------------
+
         Row(
           children: [
             SizedBox(
@@ -474,7 +490,7 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
                   onSubmitted: (_) => _submitManualRule(),
                   decoration: InputDecoration(
                     hintText:
-                        'Nauči ULTRON trajno pravilo (npr. slog komentarjev)...',
+                        'NauÄŤi ULTRON trajno pravilo (npr. slog komentarjev)...',
                     hintStyle: TextStyle(fontSize: 11, color: hud.textMuted),
                     filled: true,
                     fillColor: hud.bgInput.alphaPct(0.75),
@@ -502,7 +518,7 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
           child: mem.learnedEntries.isEmpty
               ? Center(
                   child: Text(
-                    'Še ni naučenih pravil. Klikni "Zaženi Learn zdaj" za analizo trenutne kode in klepeta.',
+                    'Ĺ e ni nauÄŤenih pravil. Klikni "ZaĹľeni Learn zdaj" za analizo trenutne kode in klepeta.',
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 12, color: hud.textMuted),
                   ),
@@ -531,13 +547,34 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  '${e.title} · ${e.category}',
-                                  style: TextStyle(
-                                    fontSize: 11.8,
-                                    fontWeight: FontWeight.w600,
-                                    color: hud.textPrimary,
-                                  ),
+                                Row(
+                                  children: [
+                                    Text(
+                                      '${e.title} Â· ${e.category}',
+                                      style: TextStyle(
+                                        fontSize: 11.8,
+                                        fontWeight: FontWeight.w600,
+                                        color: hud.textPrimary,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    // Prikaz znaÄŤke obsega
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                      decoration: BoxDecoration(
+                                        color: e.isGlobal ? hud.primaryPeriwinkle.alphaPct(0.15) : hud.secondaryVioletBloom.alphaPct(0.15),
+                                        borderRadius: BorderRadius.circular(3),
+                                      ),
+                                      child: Text(
+                                        e.isGlobal ? 'GLOBALNO' : 'PROJEKT',
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.w700,
+                                          color: e.isGlobal ? hud.primaryPeriwinkle : hud.secondaryVioletBloom,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                                 const SizedBox(height: 3),
                                 Text(
@@ -545,6 +582,14 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
                                   style: TextStyle(
                                       fontSize: 11.5, color: hud.textMuted),
                                 ),
+                                if (!e.isGlobal && e.projectPath.isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 2),
+                                    child: Text(
+                                      'Pot: ${e.projectPath}',
+                                      style: TextStyle(fontSize: 10, color: hud.textMuted.alphaPct(0.7)),
+                                    ),
+                                  ),
                               ],
                             ),
                           ),
@@ -564,7 +609,7 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
                             onPressed: () => mem.togglePinEntry(e.id),
                           ),
                           IconButton(
-                            tooltip: 'Izbriši pravilo',
+                            tooltip: 'IzbriĹˇi pravilo',
                             visualDensity: VisualDensity.compact,
                             icon: Icon(Icons.delete_outline_rounded,
                                 size: 15, color: hud.textMuted),
@@ -585,14 +630,12 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
     widget.brain.memoryService.addManualRule(
       title: _ruleTitleCtrl.text,
       rule: _ruleBodyCtrl.text,
+      projectPath: _isManualRuleGlobal ? '' : widget.brain.activeProjectPath,
     );
     _ruleTitleCtrl.clear();
     _ruleBodyCtrl.clear();
   }
 
-  //**************
-  // Zavihek 2: Prenovljeno GitHub prijavno okno in upravitelj repozitorijev *
-  //**************
   Widget _buildGithubTab(UltronHudTheme hud) {
     if (!widget.brain.isGithubConnected) {
       return _buildGithubSignInPortal(hud);
@@ -606,7 +649,6 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
     return ListView(
       key: const ValueKey('gh_signin_portal'),
       children: [
-        // Zgornja predstavitvena kartica ULTRON x GitHub
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -642,7 +684,7 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Prijava v GitHub · ULTRON Sync',
+                      'Prijava v GitHub Â· ULTRON Sync',
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
@@ -651,7 +693,7 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      'Poveži svoj račun za takojšen dostop do javnih in zasebnih repozitorijev, 1-klik kloniranje v ULTRON in sinhronizacijo projektov.',
+                      'PoveĹľi svoj raÄŤun za takojĹˇen dostop do javnih in zasebnih repozitorijev, 1-klik kloniranje v ULTRON in sinhronizacijo projektov.',
                       style: TextStyle(
                         fontSize: 11.5,
                         height: 1.4,
@@ -665,13 +707,11 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
           ),
         ),
         const SizedBox(height: 12),
-
-        // Preklopnik med načinoma prijave
         Row(
           children: [
             Expanded(
               child: HudActionButton(
-                label: '1-Klik Sistem & Hitri Žeton',
+                label: '1-Klik Sistem & Hitri Ĺ˝eton',
                 icon: Icons.login_rounded,
                 isPrimaryAccent: _ghAuthModeIndex == 0,
                 onTap: () => setState(() => _ghAuthModeIndex = 0),
@@ -689,8 +729,6 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
           ],
         ),
         const SizedBox(height: 12),
-
-        // Status ali morebitno opozorilo med prijavljanjem
         if (b.githubAuthStatus.isNotEmpty || b.githubAuthError.isNotEmpty)
           Container(
             margin: const EdgeInsets.only(bottom: 12),
@@ -743,7 +781,7 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
                 ),
                 if (b.isGithubAuthenticating)
                   HudActionButton(
-                    label: 'Prekliči',
+                    label: 'PrekliÄŤi',
                     compact: true,
                     accentColor: hud.accentErrorRed,
                     onTap: b.cancelGithubAuthFlow,
@@ -751,14 +789,10 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
               ],
             ),
           ),
-
-        // Vsebina izbranega načina prijave
         if (_ghAuthModeIndex == 0)
           _buildSystemAndPatAuthCard(hud, b)
         else
           _buildDeviceFlowAuthCard(hud, b),
-
-        // Če je trenutna lokalna mapa že Git repozitorij, prikažemo status tudi brez prijave
         if (b.localGitBranch.isNotEmpty) ...[
           const SizedBox(height: 12),
           _buildLocalGitStrip(hud, b),
@@ -767,10 +801,7 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
     );
   }
 
-  Widget _buildSystemAndPatAuthCard(
-    UltronHudTheme hud,
-    UltronBrainRouter b,
-  ) {
+  Widget _buildSystemAndPatAuthCard(UltronHudTheme hud, UltronBrainRouter b) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -782,7 +813,7 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            'Možnost A · Samodejna prijava iz računalnika (Priporočeno)',
+            'MoĹľnost A Â· Samodejna prijava iz raÄŤunalnika (PriporoÄŤeno)',
             style: TextStyle(
               fontSize: 12.2,
               fontWeight: FontWeight.w700,
@@ -791,7 +822,7 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
           ),
           const SizedBox(height: 4),
           Text(
-            'Samodejno uporabi obstoječo GitHub prijavo iz VS Code / Git Credential Managerja ali GitHub CLI (gh) oz. odpre varno prijavo v brskalniku.',
+            'Samodejno uporabi obstojeÄŤo GitHub prijavo iz VS Code / Git Credential Managerja ali GitHub CLI (gh) oz. odpre varno prijavo v brskalniku.',
             style: TextStyle(fontSize: 11.2, color: hud.textMuted),
           ),
           const SizedBox(height: 10),
@@ -819,7 +850,7 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
             children: [
               Expanded(
                 child: Text(
-                  'Možnost B · Hitri osebni žeton (Personal Access Token)',
+                  'MoĹľnost B Â· Hitri osebni Ĺľeton (Personal Access Token)',
                   style: TextStyle(
                     fontSize: 12.2,
                     fontWeight: FontWeight.w700,
@@ -828,7 +859,7 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
                 ),
               ),
               HudActionButton(
-                label: 'Odpri ustvarjalnik žetona',
+                label: 'Odpri ustvarjalnik Ĺľetona',
                 icon: Icons.open_in_new_rounded,
                 compact: true,
                 onTap: b.openGithubQuickTokenCreator,
@@ -886,7 +917,7 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
               ),
               const SizedBox(width: 6),
               HudActionButton(
-                label: 'Prilepi & Poveži',
+                label: 'Prilepi & PoveĹľi',
                 icon: Icons.content_paste_rounded,
                 onTap: b.isGithubAuthenticating
                     ? null
@@ -927,10 +958,7 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
     );
   }
 
-  Widget _buildDeviceFlowAuthCard(
-    UltronHudTheme hud,
-    UltronBrainRouter b,
-  ) {
+  Widget _buildDeviceFlowAuthCard(UltronHudTheme hud, UltronBrainRouter b) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -958,13 +986,13 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
                 icon: Icons.open_in_new_rounded,
                 compact: true,
                 onTap: () =>
-                    b.openWebUrl('[https://github.com/settings/applications/new](https://github.com/settings/applications/new)'),
+                    b.openWebUrl('https://github.com/settings/applications/new'),
               ),
             ],
           ),
           const SizedBox(height: 5),
           Text(
-            'Vnesi Client ID svoje GitHub OAuth aplikacije (z vklopljeno možnostjo "Enable Device Flow") za prijavo z 8-mestno kodo v brskalniku.',
+            'Vnesi Client ID svoje GitHub OAuth aplikacije (z vklopljeno moĹľnostjo "Enable Device Flow") za prijavo z 8-mestno kodo v brskalniku.',
             style: TextStyle(fontSize: 11.2, color: hud.textMuted),
           ),
           const SizedBox(height: 10),
@@ -1056,7 +1084,7 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
                     onTap: () async {
                       await Clipboard.setData(
                           ClipboardData(text: b.githubDeviceUserCode));
-                      widget.onToast?.call('Koda kopirana v odložišče');
+                      widget.onToast?.call('Koda kopirana v odloĹľiĹˇÄŤe');
                     },
                   ),
                   const SizedBox(width: 8),
@@ -1075,9 +1103,6 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
     );
   }
 
-  //**************
-  // Povezani pogled: Profilna kartica + Lokalni Git + Iskalnik in Kloniranje repozitorijev *
-  //**************
   Widget _buildGithubConnectedWorkspace(UltronHudTheme hud) {
     final b = widget.brain;
 
@@ -1097,7 +1122,6 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
       key: const ValueKey('gh_connected_workspace'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // 1. Bogata profilna kartica prijavljenega uporabnika
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
           decoration: BoxDecoration(
@@ -1161,14 +1185,14 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      'Javni: ${b.githubPublicReposCount} · Zasebni: ${b.githubPrivateReposCount} · API kvota: ${b.githubRateLimitRemaining}/${b.githubRateLimitTotal}',
+                      'Javni: ${b.githubPublicReposCount} Â· Zasebni: ${b.githubPrivateReposCount} Â· API kvota: ${b.githubRateLimitRemaining}/${b.githubRateLimitTotal}',
                       style: TextStyle(fontSize: 11, color: hud.textMuted),
                     ),
                   ],
                 ),
               ),
               HudActionButton(
-                label: b.isFetchingRepos ? 'Osvežujem...' : 'Osveži',
+                label: b.isFetchingRepos ? 'OsveĹľujem...' : 'OsveĹľi',
                 icon: Icons.refresh_rounded,
                 compact: true,
                 onTap: b.isFetchingRepos ? null : b.fetchGithubRepos,
@@ -1188,7 +1212,6 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
           ),
         ),
 
-        // 2. Vrstica lokalnega Git repozitorija (če je trenutna mapa povezana z Gitom)
         if (b.localGitBranch.isNotEmpty) ...[
           const SizedBox(height: 8),
           _buildLocalGitStrip(hud, b),
@@ -1196,7 +1219,6 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
 
         const SizedBox(height: 10),
 
-        // 3. Iskalna in filtrirna vrstica repozitorijev
         Row(
           children: [
             Expanded(
@@ -1213,7 +1235,7 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
                     prefixIconConstraints:
                         const BoxConstraints(minWidth: 32, maxHeight: 28),
                     hintText:
-                        'Išči po repozitorijih, opisu ali jeziku (Dart, C#, Python...)...',
+                        'IĹˇÄŤi po repozitorijih, opisu ali jeziku (Dart, C#, Python...)...',
                     hintStyle: TextStyle(fontSize: 11.2, color: hud.textMuted),
                     filled: true,
                     fillColor: hud.bgInput.alphaPct(0.70),
@@ -1254,7 +1276,6 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
         ),
         const SizedBox(height: 10),
 
-        // 4. Seznam repozitorijev z interaktivnimi karticami
         Expanded(
           child: b.isFetchingRepos && b.githubRepos.isEmpty
               ? Center(
@@ -1266,7 +1287,7 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
               : filteredRepos.isEmpty
                   ? Center(
                       child: Text(
-                        'Ni ujemajočih se repozitorijev.',
+                        'Ni ujemajoÄŤih se repozitorijev.',
                         style: TextStyle(fontSize: 12, color: hud.textMuted),
                       ),
                     )
@@ -1326,7 +1347,7 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
           const SizedBox(width: 7),
           Expanded(
             child: Text(
-              '$targetName · veja "${b.localGitBranch}" · ${b.localGitChangedCount == 0 ? "čisto stanje" : "${b.localGitChangedCount} spremenjenih datotek"}',
+              '$targetName Â· veja "${b.localGitBranch}" Â· ${b.localGitChangedCount == 0 ? "ÄŤisto stanje" : "${b.localGitChangedCount} spremenjenih datotek"}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(fontSize: 11.2, color: hud.textPrimary),
@@ -1341,7 +1362,7 @@ class _ConnectionsHudWindowState extends State<ConnectionsHudWindow> {
                 : () async {
                     final ok = await b.pullCurrentGitWorkspace();
                     widget.onToast?.call(
-                      ok ? 'Git Pull uspešen' : 'Git Pull ni uspel',
+                      ok ? 'Git Pull uspeĹˇen' : 'Git Pull ni uspel',
                     );
                   },
           ),

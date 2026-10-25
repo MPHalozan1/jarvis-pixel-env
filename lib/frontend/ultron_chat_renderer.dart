@@ -7,8 +7,9 @@ import 'ultron_bubble_painter.dart';
 import 'ultron_hud_theme.dart';
 
 //**************
-// Izolirana kartica sporočila v klepetu z vgrajeno varčno Mini 3D kroglo (UltronMiniChatOrb) *
-// Mini krogla se animira SAMO med razmišljanjem/tipkanjem in se ob koncu popolnoma ustavi *
+// Dodelana kartica sporočila uporabnika in ULTRON odgovora *
+// Vključuje inženirsko glavo (model, hitrost tok/s, trajanje), *
+// odpiranje kode v urejevalniku, shranjevanje izpiska in 1-klik učenje *
 //**************
 class UltronChatMessageCard extends StatefulWidget {
   final ChatMessageItem message;
@@ -178,11 +179,11 @@ class _UltronChatMessageCardState extends State<UltronChatMessageCard>
 
       final double baseRate =
           widget.brain.typingMode == UltronTypingMode.waitFullThenType
-              ? 120.0 * speedMult
-              : 65.0 * speedMult;
-      final double catchupBoost = backlog * (6.0 * speedMult);
+              ? 340.0 * speedMult
+              : 185.0 * speedMult;
+      final double catchupBoost = backlog * (12.0 * speedMult);
       final double charsPerSec =
-          (baseRate + catchupBoost).clamp(38.0, 1650.0);
+          (baseRate + catchupBoost).clamp(65.0, 3200.0);
 
       _visibleCharsExact = (_visibleCharsExact + dt * charsPerSec)
           .clamp(0.0, targetLen.toDouble());
@@ -220,9 +221,270 @@ class _UltronChatMessageCardState extends State<UltronChatMessageCard>
   Future<void> _copyWholeMessage(String text) async {
     await Clipboard.setData(ClipboardData(text: text));
     setState(() => _copiedWholeMsg = true);
-    widget.onToast?.call('Odgovor kopiran v odložišče');
+    widget.onToast?.call('Sporočilo kopirano v odložišče');
     await Future<void>.delayed(const Duration(milliseconds: 1400));
     if (mounted) setState(() => _copiedWholeMsg = false);
+  }
+
+  String _formatTime(DateTime t) {
+    final h = t.hour.toString().padLeft(2, '0');
+    final m = t.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+
+  void _showEditUserMessageDialog() {
+    final ctrl = TextEditingController(text: widget.message.content);
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        final hud =
+            Theme.of(ctx).extension<UltronHudTheme>() ?? UltronHudTheme.dark;
+        return AlertDialog(
+          backgroundColor: hud.bgPanel,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(hud.cutRadius),
+            side: BorderSide(color: hud.borderLine),
+          ),
+          title: Text(
+            'Uredi poziv & ponovno pošlji',
+            style: TextStyle(
+              fontSize: 14.5,
+              fontWeight: FontWeight.w700,
+              color: hud.textPrimary,
+            ),
+          ),
+          content: SizedBox(
+            width: 520,
+            child: TextField(
+              controller: ctrl,
+              autofocus: true,
+              minLines: 2,
+              maxLines: 8,
+              style: TextStyle(fontSize: 13, color: hud.textPrimary),
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: hud.bgInput,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(6),
+                  borderSide: BorderSide(color: hud.borderLine),
+                ),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text('Prekliči', style: TextStyle(color: hud.textMuted)),
+            ),
+            TextButton(
+              onPressed: () {
+                widget.brain
+                    .editAndResubmitUserMessage(widget.message.id, ctrl.text);
+                Navigator.pop(ctx);
+              },
+              child: Text(
+                'Pošlji ponovno',
+                style: TextStyle(
+                  color: hud.primaryPeriwinkle,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showSaveOutputDialog(String fullText) {
+    final defaultName =
+        'ultron_izpisek_${DateTime.now().millisecondsSinceEpoch % 10000}.md';
+    final ctrl = TextEditingController(text: defaultName);
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        final hud =
+            Theme.of(ctx).extension<UltronHudTheme>() ?? UltronHudTheme.dark;
+        return AlertDialog(
+          backgroundColor: hud.bgPanel,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(hud.cutRadius),
+            side: BorderSide(color: hud.borderLine),
+          ),
+          title: Text(
+            'Shrani ULTRON izpisek v datoteko',
+            style: TextStyle(
+              fontSize: 14.5,
+              fontWeight: FontWeight.w700,
+              color: hud.textPrimary,
+            ),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                widget.brain.hasActiveProject
+                    ? 'Shrani v aktivni projekt (${widget.brain.activeProjectName}):'
+                    : 'Shrani v trenutno mapo (${widget.brain.currentBrowserFolderName}):',
+                style: TextStyle(fontSize: 12, color: hud.textMuted),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: ctrl,
+                autofocus: true,
+                style: TextStyle(fontSize: 12.5, color: hud.textPrimary),
+                decoration: InputDecoration(
+                  filled: true,
+                  fillColor: hud.bgInput,
+                  hintText: 'npr. docs/arhitektura.md',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(6),
+                    borderSide: BorderSide(color: hud.borderLine),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text('Prekliči', style: TextStyle(color: hud.textMuted)),
+            ),
+            TextButton(
+              onPressed: () async {
+                final saved = await widget.brain.saveAssistantOutputToFile(
+                  content: fullText,
+                  relativeOrFullPath: ctrl.text,
+                );
+                if (ctx.mounted) Navigator.pop(ctx);
+                widget.onToast?.call(
+                  saved != null
+                      ? 'Shranjeno: $saved'
+                      : 'Shranjevanje ni uspelo',
+                );
+              },
+              child: Text(
+                'Shrani',
+                style: TextStyle(
+                  color: hud.accentSuccessGreen,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showLearnFromMessageDialog(String fullText) {
+    final ctrl = TextEditingController(
+      text: _isUser ? 'Uporabniško navodilo' : 'Arhitekturni vzorec',
+    );
+    bool isGlobal = !widget.brain.hasActiveProject;
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        final hud =
+            Theme.of(ctx).extension<UltronHudTheme>() ?? UltronHudTheme.dark;
+        return StatefulBuilder(
+          builder: (ctx, setStateDialog) {
+            return AlertDialog(
+              backgroundColor: hud.bgPanel,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(hud.cutRadius),
+                side: BorderSide(color: hud.borderLine),
+              ),
+              title: Text(
+                'Shrani v Learn Vault',
+                style: TextStyle(
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.w700,
+                  color: hud.textPrimary,
+                ),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'ULTRON bo iz tega sporočila izluščil trajno pravilo.',
+                    style: TextStyle(fontSize: 12, color: hud.textMuted),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: ctrl,
+                    style: TextStyle(fontSize: 12.5, color: hud.textPrimary),
+                    decoration: InputDecoration(
+                      filled: true,
+                      fillColor: hud.bgInput,
+                      hintText: 'Kratek naslov pravila...',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(6),
+                        borderSide: BorderSide(color: hud.borderLine),
+                      ),
+                    ),
+                  ),
+                  if (widget.brain.hasActiveProject) ...[
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Switch(
+                          value: isGlobal,
+                          activeTrackColor: hud.accentSuccessGreen,
+                          activeThumbColor: Colors.white,
+                          onChanged: (v) =>
+                              setStateDialog(() => isGlobal = v),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            isGlobal
+                                ? 'Globalno pravilo (vsi klepeti)'
+                                : 'Samo za projekt ${widget.brain.activeProjectName}',
+                            style: TextStyle(
+                                fontSize: 12, color: hud.textPrimary),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child:
+                      Text('Prekliči', style: TextStyle(color: hud.textMuted)),
+                ),
+                TextButton(
+                  onPressed: () async {
+                    Navigator.pop(ctx);
+                    await widget.brain.learnFromMessageContent(
+                      title: ctrl.text,
+                      contentOrRule: fullText,
+                      isGlobal: isGlobal,
+                      extractViaLlm: true,
+                    );
+                    widget.onToast?.call('Pravilo dodano v Learn Vault');
+                  },
+                  child: Text(
+                    'Nauči se',
+                    style: TextStyle(
+                      color: hud.primaryPeriwinkle,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
@@ -252,50 +514,50 @@ class _UltronChatMessageCardState extends State<UltronChatMessageCard>
     return RepaintBoundary(
       child: TweenAnimationBuilder<double>(
         tween: Tween(begin: 0.0, end: 1.0),
-        duration: const Duration(milliseconds: 200),
+        duration: const Duration(milliseconds: 190),
         curve: Curves.easeOutCubic,
         builder: (context, anim, child) {
           return Opacity(
             opacity: anim,
             child: Transform.translate(
-              offset: Offset(0, (1.0 - anim) * 7.0),
+              offset: Offset(0, (1.0 - anim) * 6.0),
               child: child,
             ),
           );
         },
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 7),
+          padding: const EdgeInsets.symmetric(vertical: 8),
           child: Align(
             alignment: _isUser ? Alignment.centerRight : Alignment.centerLeft,
             child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: _isUser ? 620 : 720),
+              constraints: BoxConstraints(maxWidth: _isUser ? 660 : 840),
               child: MouseRegion(
                 onEnter: (_) => setState(() => _hovered = true),
                 onExit: (_) => setState(() => _hovered = false),
                 child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 170),
+                  duration: const Duration(milliseconds: 160),
                   curve: Curves.easeOutCubic,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 12),
                   decoration: BoxDecoration(
                     color: _isUser
-                        ? hud.primaryPeriwinkle.alphaPct(0.15)
-                        : hud.bgPanel.alphaPct(_hovered ? 0.90 : 0.82),
-                    borderRadius: BorderRadius.circular(hud.cutRadius + 1),
+                        ? hud.primaryPeriwinkle.alphaPct(0.14)
+                        : hud.bgPanel.alphaPct(_hovered ? 0.92 : 0.84),
+                    borderRadius: BorderRadius.circular(hud.cutRadius + 2),
                     border: Border.all(
                       color: _isUser
                           ? hud.primaryPeriwinkle
-                              .alphaPct(_hovered ? 0.58 : 0.38)
+                              .alphaPct(_hovered ? 0.58 : 0.34)
                           : (activelyTypingOut || isWaitingForFullBuffer
-                              ? hud.primaryPeriwinkle.alphaPct(0.52)
+                              ? hud.primaryPeriwinkle.alphaPct(0.50)
                               : hud.borderLine
                                   .alphaPct(_hovered ? 0.95 : 0.72)),
                       width: 1.0,
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.alphaPct(_hovered ? 0.20 : 0.11),
-                        blurRadius: _hovered ? 16 : 10,
+                        color: Colors.black.alphaPct(_hovered ? 0.22 : 0.12),
+                        blurRadius: _hovered ? 18 : 10,
                         offset: const Offset(0, 4),
                       ),
                     ],
@@ -303,7 +565,10 @@ class _UltronChatMessageCardState extends State<UltronChatMessageCard>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (!_isUser) ...[
+                      if (_isUser) ...[
+                        _buildUserHeader(hud, fullTarget),
+                        const SizedBox(height: 6),
+                      ] else ...[
                         _buildAssistantHeader(
                           hud: hud,
                           fullTarget: fullTarget,
@@ -325,19 +590,21 @@ class _UltronChatMessageCardState extends State<UltronChatMessageCard>
                                 color: hud.bgInput.alphaPct(0.88),
                                 borderRadius: BorderRadius.circular(5),
                                 border: Border.all(
-                                    color:
-                                        hud.primaryPeriwinkle.alphaPct(0.35)),
+                                  color: hud.primaryPeriwinkle.alphaPct(0.35),
+                                ),
                               ),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Icon(Icons.attach_file_rounded,
-                                      size: 11.5, color: hud.primaryPeriwinkle),
+                                      size: 11.5,
+                                      color: hud.primaryPeriwinkle),
                                   const SizedBox(width: 4),
                                   Text(
                                     fName,
                                     style: TextStyle(
-                                        fontSize: 10.8, color: hud.textPrimary),
+                                        fontSize: 10.8,
+                                        color: hud.textPrimary),
                                   ),
                                 ],
                               ),
@@ -368,8 +635,8 @@ class _UltronChatMessageCardState extends State<UltronChatMessageCard>
                         Wrap(
                           spacing: 6,
                           runSpacing: 6,
-                          children:
-                              widget.message.pendingWriteProposals.map((prop) {
+                          children: widget.message.pendingWriteProposals
+                              .map((prop) {
                             return HudActionButton(
                               compact: true,
                               isPrimaryAccent: true,
@@ -403,9 +670,60 @@ class _UltronChatMessageCardState extends State<UltronChatMessageCard>
     );
   }
 
-  //**************
-  // Glava sporočila asistenta z vgrajeno mini 3D kroglo UltronMiniChatOrb *
-  //**************
+  Widget _buildUserHeader(UltronHudTheme hud, String fullTarget) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.person_outline_rounded,
+            size: 13.5, color: hud.primaryPeriwinkle),
+        const SizedBox(width: 5),
+        Text(
+          'TI · ${_formatTime(widget.message.timestamp)}',
+          style: TextStyle(
+            fontSize: 10.2,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.7,
+            color: hud.textMuted,
+          ),
+        ),
+        const Spacer(),
+        AnimatedOpacity(
+          duration: const Duration(milliseconds: 140),
+          opacity: _hovered || _copiedWholeMsg ? 1.0 : 0.0,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _headerActionChip(
+                hud: hud,
+                icon: Icons.edit_outlined,
+                label: 'Uredi',
+                onTap: _showEditUserMessageDialog,
+              ),
+              const SizedBox(width: 4),
+              _headerActionChip(
+                hud: hud,
+                icon: _copiedWholeMsg
+                    ? Icons.check_rounded
+                    : Icons.copy_rounded,
+                label: _copiedWholeMsg ? 'Kopirano' : 'Kopiraj',
+                color: _copiedWholeMsg ? hud.accentSuccessGreen : null,
+                onTap: () => _copyWholeMessage(fullTarget),
+              ),
+              const SizedBox(width: 4),
+              _headerActionChip(
+                hud: hud,
+                icon: Icons.psychology_alt,
+                label: 'Nauči se',
+                color: hud.primaryPeriwinkle,
+                onTap: () => _showLearnFromMessageDialog(fullTarget),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildAssistantHeader({
     required UltronHudTheme hud,
     required String fullTarget,
@@ -415,6 +733,14 @@ class _UltronChatMessageCardState extends State<UltronChatMessageCard>
     final bool miniOrbActive = !netDone || activelyTypingOut;
     final OrbState miniState =
         !netDone ? OrbState.thinking : OrbState.answering;
+
+    final statsParts = <String>[
+      widget.message.modelName,
+      if (widget.message.tokensPerSec > 0)
+        '${widget.message.tokensPerSec.toStringAsFixed(1)} tok/s',
+      if (widget.message.generationDurationMs > 0)
+        '${(widget.message.generationDurationMs / 1000.0).toStringAsFixed(1)}s',
+    ];
 
     return Row(
       children: [
@@ -434,82 +760,97 @@ class _UltronChatMessageCardState extends State<UltronChatMessageCard>
           ),
         ),
         const SizedBox(width: 6),
-        Text(
-          '· ${widget.message.modelName}',
-          style: TextStyle(
-            fontSize: 10.5,
-            color: hud.textMuted.alphaPct(0.80),
+        Expanded(
+          child: Text(
+            '· ${statsParts.join(" · ")}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 10.5,
+              color: hud.textMuted.alphaPct(0.85),
+            ),
           ),
         ),
-        const Spacer(),
         if (activelyTypingOut && fullTarget.length - _visibleChars > 25)
-          InkWell(
-            borderRadius: BorderRadius.circular(5),
+          _headerActionChip(
+            hud: hud,
+            icon: Icons.fast_forward_rounded,
+            label: 'Prikaži vse',
+            color: hud.primaryPeriwinkle,
             onTap: _skipTypingNow,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-              decoration: BoxDecoration(
-                color: hud.primaryPeriwinkle.alphaPct(0.16),
-                borderRadius: BorderRadius.circular(5),
-                border:
-                    Border.all(color: hud.primaryPeriwinkle.alphaPct(0.45)),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.fast_forward_rounded,
-                      size: 12, color: hud.primaryPeriwinkle),
-                  const SizedBox(width: 4),
-                  Text(
-                    'Prikaži vse',
-                    style: TextStyle(
-                      fontSize: 10.2,
-                      fontWeight: FontWeight.w600,
-                      color: hud.textPrimary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
           ),
         if (_typingFinished && fullTarget.isNotEmpty)
           AnimatedOpacity(
             duration: const Duration(milliseconds: 140),
             opacity: _hovered || _copiedWholeMsg ? 1.0 : 0.0,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(5),
-              onTap: () => _copyWholeMessage(fullTarget),
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      _copiedWholeMsg
-                          ? Icons.check_rounded
-                          : Icons.copy_rounded,
-                      size: 12.5,
-                      color: _copiedWholeMsg
-                          ? hud.accentSuccessGreen
-                          : hud.textMuted,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      _copiedWholeMsg ? 'Kopirano' : 'Kopiraj',
-                      style: TextStyle(
-                        fontSize: 10.2,
-                        color: _copiedWholeMsg
-                            ? hud.accentSuccessGreen
-                            : hud.textMuted,
-                      ),
-                    ),
-                  ],
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _headerActionChip(
+                  hud: hud,
+                  icon: _copiedWholeMsg
+                      ? Icons.check_rounded
+                      : Icons.copy_rounded,
+                  label: _copiedWholeMsg ? 'Kopirano' : 'Kopiraj',
+                  color: _copiedWholeMsg ? hud.accentSuccessGreen : null,
+                  onTap: () => _copyWholeMessage(fullTarget),
                 ),
-              ),
+                const SizedBox(width: 4),
+                _headerActionChip(
+                  hud: hud,
+                  icon: Icons.save_alt_rounded,
+                  label: 'Shrani',
+                  onTap: () => _showSaveOutputDialog(fullTarget),
+                ),
+                const SizedBox(width: 4),
+                _headerActionChip(
+                  hud: hud,
+                  icon: Icons.psychology_alt,
+                  label: 'Nauči se',
+                  color: hud.accentSuccessGreen,
+                  onTap: () => _showLearnFromMessageDialog(fullTarget),
+                ),
+              ],
             ),
           ),
       ],
+    );
+  }
+
+  Widget _headerActionChip({
+    required UltronHudTheme hud,
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    Color? color,
+  }) {
+    final c = color ?? hud.textMuted;
+    return InkWell(
+      borderRadius: BorderRadius.circular(5),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+        decoration: BoxDecoration(
+          color: hud.bgInput.alphaPct(0.75),
+          borderRadius: BorderRadius.circular(5),
+          border: Border.all(color: hud.borderLine.alphaPct(0.75)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 11.5, color: c),
+            const SizedBox(width: 3.5),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                color: c,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -690,6 +1031,13 @@ class _UltronChatMessageCardState extends State<UltronChatMessageCard>
               code: b.content,
               isTyping: isActivelyTyping && isLastBlock,
               onToast: widget.onToast,
+              onOpenInEditor: () async {
+                final opened = await widget.brain.openCodeSnippetInEditor(
+                  code: b.content,
+                  language: b.language,
+                );
+                widget.onToast?.call('Odprto v urejevalniku: $opened');
+              },
             ),
           ),
         );
@@ -705,8 +1053,8 @@ class _UltronChatMessageCardState extends State<UltronChatMessageCard>
             RichText(
               text: TextSpan(
                 style: TextStyle(
-                  fontSize: 13.3,
-                  height: 1.54,
+                  fontSize: 13.4,
+                  height: 1.55,
                   color: hud.textPrimary,
                 ),
                 children: spans,
@@ -718,8 +1066,8 @@ class _UltronChatMessageCardState extends State<UltronChatMessageCard>
             SelectableText.rich(
               TextSpan(
                 style: TextStyle(
-                  fontSize: 13.3,
-                  height: 1.54,
+                  fontSize: 13.4,
+                  height: 1.55,
                   color: hud.textPrimary,
                 ),
                 children: spans,
@@ -746,7 +1094,8 @@ class _UltronChatMessageCardState extends State<UltronChatMessageCard>
     required bool appendCursor,
   }) {
     final spans = <InlineSpan>[];
-    final tokenRegex = RegExp(r'(\*\*[^*]+\*\*|`[^`\n]+`)');
+    final tokenRegex =
+        RegExp(r'(\*\*[^*]+\*\*|`[^`\n]+`|@[A-Za-z0-9_.\-/\\]+)');
     int lastEnd = 0;
 
     for (final match in tokenRegex.allMatches(raw)) {
@@ -773,6 +1122,16 @@ class _UltronChatMessageCardState extends State<UltronChatMessageCard>
               fontSize: 12.2,
               color: hud.primaryPeriwinkle,
               backgroundColor: hud.bgInput.alphaPct(0.9),
+            ),
+          ),
+        );
+      } else if (tok.startsWith('@') && tok.length > 1) {
+        spans.add(
+          TextSpan(
+            text: tok,
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: hud.accentSuccessGreen,
             ),
           ),
         );
@@ -864,12 +1223,14 @@ class _InteractiveCodeBlockCard extends StatefulWidget {
   final String code;
   final bool isTyping;
   final ValueChanged<String>? onToast;
+  final VoidCallback onOpenInEditor;
 
   const _InteractiveCodeBlockCard({
     required this.language,
     required this.code,
     required this.isTyping,
     this.onToast,
+    required this.onOpenInEditor,
   });
 
   @override
@@ -935,6 +1296,30 @@ class _InteractiveCodeBlockCardState extends State<_InteractiveCodeBlockCard> {
                   const Spacer(),
                   InkWell(
                     borderRadius: BorderRadius.circular(4),
+                    onTap: widget.onOpenInEditor,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 3),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.code_rounded,
+                              size: 12.5, color: hud.primaryPeriwinkle),
+                          const SizedBox(width: 4),
+                          Text(
+                            'V urejevalnik',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              color: hud.primaryPeriwinkle,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(4),
                     onTap: _copyCode,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
@@ -951,7 +1336,7 @@ class _InteractiveCodeBlockCardState extends State<_InteractiveCodeBlockCard> {
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            _copied ? 'Kopirano' : 'Kopiraj kodo',
+                            _copied ? 'Kopirano' : 'Kopiraj',
                             style: TextStyle(
                               fontSize: 10.5,
                               color: _copied

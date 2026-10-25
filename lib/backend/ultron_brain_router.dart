@@ -21,7 +21,6 @@ enum UltronTypingMode {
 
 //**************
 // Stopnje globine razmišljanja in konteksta glede na zahtevnost ukaza *
-// Varčuje z RAM in VRAM pomnilnikom pri kratkih pozdravih in klepetu *
 //**************
 enum UltronPromptEffort {
   casualFast,
@@ -29,9 +28,6 @@ enum UltronPromptEffort {
   deepWorkspace,
 }
 
-//**************
-// Podatki o zaznanem lokalnem LLM modelu na računalniku *
-//**************
 class LocalLlmModelInfo {
   final String name;
   final String sizeLabel;
@@ -63,9 +59,6 @@ class LocalLlmModelInfo {
   }
 }
 
-//**************
-// Pripravljena datoteka ali celotna mapa za pošiljanje v kontekst LLM-ja *
-//**************
 class AttachedFilePayload {
   final String path;
   final String name;
@@ -100,7 +93,7 @@ class AttachedFilePayload {
 }
 
 //**************
-// Sporočilo v osrednjem klepetu z ločenim ValueNotifier medpomnilnikom *
+// Sporočilo v osrednjem klepetu z metapodatki za Korak 3 (tok/s, trajanje, priponke) *
 //**************
 class ChatMessageItem {
   final String id;
@@ -108,10 +101,13 @@ class ChatMessageItem {
   String content;
   final String modelName;
   final List<String> attachedFileNames;
+  final List<AttachedFilePayload> attachedPayloads;
   final List<WorkspaceActionRecord> workspaceActions;
   final List<WorkspaceWriteDirective> pendingWriteProposals;
   final DateTime timestamp;
   final bool isStreaming;
+  double tokensPerSec;
+  int generationDurationMs;
 
   final ValueNotifier<String> liveTargetText;
   final ValueNotifier<bool> networkDone;
@@ -123,10 +119,13 @@ class ChatMessageItem {
     required this.content,
     required this.modelName,
     this.attachedFileNames = const [],
+    this.attachedPayloads = const [],
     List<WorkspaceActionRecord>? workspaceActions,
     List<WorkspaceWriteDirective>? pendingWriteProposals,
     required this.timestamp,
     this.isStreaming = false,
+    this.tokensPerSec = 0.0,
+    this.generationDurationMs = 0,
   })  : workspaceActions = workspaceActions ?? [],
         pendingWriteProposals = pendingWriteProposals ?? [],
         liveTargetText = ValueNotifier<String>(content),
@@ -134,9 +133,6 @@ class ChatMessageItem {
         bufferedCharsCount = ValueNotifier<int>(content.length);
 }
 
-//**************
-// Zaznana težava v kodi za kirurški popravek v vgrajenem urejevalniku *
-//**************
 class LiveCodeIssue {
   final String id;
   final int lineNumber;
@@ -155,9 +151,6 @@ class LiveCodeIssue {
   });
 }
 
-//**************
-// Zavihek odprte datoteke v vgrajenem urejevalniku kode *
-//**************
 class OpenEditorTab {
   final String filePath;
   final String fileName;
@@ -190,9 +183,6 @@ class DiffHunkProposal {
   });
 }
 
-//**************
-// Podrobni metapodatki GitHub repozitorija za prikaz v novem prijavnem oknu *
-//**************
 class GitHubRepoEntry {
   final String name;
   final String fullName;
@@ -230,10 +220,7 @@ class TriageDecision {
 }
 
 //**************
-// Osrednji možganski usmerjevalnik aplikacije ULTRON: *
-// - Ohranja skeniranje vseh lokalnih LLM modelov in varno rabo RAM/VRAM *
-// - Vključuje 100% dostop do projektnih map z večstopenjskim branjem in pisanjem *
-// - Vsebuje napreden GitHub avtentikacijski sistem (System CLI/Git, Device Flow, PAT) *
+// Osrednji možganski usmerjevalnik aplikacije ULTRON *
 //**************
 class UltronBrainRouter extends ChangeNotifier {
   final MemoryLearningUsageService memoryService = MemoryLearningUsageService();
@@ -242,14 +229,12 @@ class UltronBrainRouter extends ChangeNotifier {
   final UltronProcessTelemetryService telemetryService =
       UltronProcessTelemetryService();
 
-  // Stanje krogle in pretakanja
   OrbState orbState = OrbState.standby;
   bool isGenerating = false;
   bool isScanningModels = false;
   String liveAgentStatus = '';
   HttpClient? _activeStreamClient;
 
-  // Nastavitve lokalnega LLM strežnika in varne rabe VRAM-a
   String ollamaBaseUrl = 'http://127.0.0.1:11434';
   bool isOllamaOnline = false;
   String activeLocalModel = 'gemma2-gpu';
@@ -257,7 +242,6 @@ class UltronBrainRouter extends ChangeNotifier {
   int contextWindowTokens = 6144;
   String? detectedDiskModelsFolder;
 
-  // Nastavitve gladkega izpisa klepeta in prilagoditve ULTRON videza
   UltronTypingMode typingMode = UltronTypingMode.adaptiveSmooth;
   double typingSpeedMultiplier = 1.2;
   int accentPresetIndex = 0;
@@ -268,12 +252,12 @@ class UltronBrainRouter extends ChangeNotifier {
   List<String> get installedOllamaModels =>
       discoveredModels.map((m) => m.name).toList();
 
-  // Pogovor in univerzalne priponke
   final List<ChatMessageItem> messages = [];
   final List<AttachedFilePayload> pendingAttachments = [];
   final List<ChatTurnRecord> _sessionHistory = [];
 
-  // Brskalnik datotek in izbirna projektna mapa (privzeto brez projekta za varčen RAM)
+  String currentChatSessionId = '';
+
   String currentBrowserDirectory = Directory.current.path;
   String activeProjectPath = '';
   bool isWorkspaceModeEnabled = false;
@@ -281,7 +265,6 @@ class UltronBrainRouter extends ChangeNotifier {
   int workspaceRevision = 0;
   List<String> availableSystemRoots = [];
 
-  // Vgrajeni VS Code kirurški urejevalnik
   bool isVsCodeWindowOpen = false;
   bool isStreamingCode = false;
   String activeExecutionModel = 'gemma2-gpu';
@@ -291,7 +274,6 @@ class UltronBrainRouter extends ChangeNotifier {
   final List<LiveCodeIssue> detectedIssues = [];
   final List<DiffHunkProposal> pendingDiffHunks = [];
 
-  // Napredna GitHub prijava, profil in lokalni Git status
   String githubUsername = '';
   String githubDisplayName = '';
   String githubAvatarUrl = '';
@@ -314,17 +296,33 @@ class UltronBrainRouter extends ChangeNotifier {
   final List<GitHubRepoEntry> githubRepos = [];
   String? cloningRepoFullName;
 
+  // Lokalni Git status za aktivni projekt ali trenutno mapo brskalnika
   String localGitBranch = '';
   int localGitChangedCount = 0;
+  int localGitAheadCount = 0;
+  int localGitBehindCount = 0;
+  final List<String> localGitChangedFiles = [];
   bool isSyncingLocalGit = false;
+  String lastGitActionSummary = '';
   bool isJulesConnected = false;
 
   bool _deviceFlowCancelled = false;
   Process? _activeAuthProcess;
   late File _routerConfigFile;
 
+  bool isOrbCompactTop = false;
+  String currentPromptLabel = '';
+  String currentCenterResponseText = '';
+  String? lastErrorBanner;
+  String statusBanner = 'ULTRON NEURAL CORE READY';
+
   bool get hasActiveProject =>
       isWorkspaceModeEnabled && activeProjectPath.trim().isNotEmpty;
+
+  String get effectiveGitDirectory =>
+      hasActiveProject ? activeProjectPath : currentBrowserDirectory;
+
+  String get currentBrowserFolderName => _basename(currentBrowserDirectory);
 
   OpenEditorTab? get activeTab =>
       (activeTabIndex >= 0 && activeTabIndex < openTabs.length)
@@ -363,10 +361,8 @@ class UltronBrainRouter extends ChangeNotifier {
     await _loadRouterConfig();
     await refreshSystemRoots();
 
-    // Zaženemo živo telemetrijo za ULTRON + lokalni LLM
     unawaited(telemetryService.start(ollamaBaseUrl: ollamaBaseUrl));
 
-    // Če je bil GitHub že povezan, tiho osvežimo profil in repozitorije v ozadju
     if (githubToken.isNotEmpty) {
       unawaited(connectGithubWithToken(githubToken, silentRefresh: true));
     }
@@ -383,6 +379,308 @@ class UltronBrainRouter extends ChangeNotifier {
     _activeStreamClient?.close(force: true);
     telemetryService.dispose();
     super.dispose();
+  }
+
+  void startNewChatSession() {
+    currentChatSessionId = '';
+    messages.clear();
+    _sessionHistory.clear();
+    currentCenterResponseText = '';
+    currentPromptLabel = '';
+    isOrbCompactTop = false;
+    orbState = OrbState.standby;
+    notifyListeners();
+  }
+
+  Future<void> loadSavedChatArchiveIntoView(SavedChatArchive archive) async {
+    final session =
+        await memoryService.loadChatSessionFromDisk(archive.sessionId);
+    if (session != null) {
+      currentChatSessionId = archive.sessionId;
+      _sessionHistory
+        ..clear()
+        ..addAll(session.turns);
+      messages.clear();
+
+      for (final turn in session.turns) {
+        messages.add(
+          ChatMessageItem(
+            id: 't_${turn.timestamp.microsecondsSinceEpoch}_${math.Random().nextInt(10000)}',
+            role: turn.role,
+            content: turn.content,
+            modelName: turn.modelUsed,
+            attachedFileNames: turn.attachedFiles,
+            timestamp: turn.timestamp,
+            tokensPerSec: turn.tokensPerSec,
+            generationDurationMs: turn.generationDurationMs,
+          ),
+        );
+      }
+
+      if (archive.hasProject && archive.projectPath.isNotEmpty) {
+        await setActiveProjectFolder(archive.projectPath);
+      }
+
+      if (session.turns.isNotEmpty) {
+        currentCenterResponseText = session.turns.last.content;
+      }
+      currentPromptLabel = 'Naložena seja: ${archive.title}';
+      isOrbCompactTop = true;
+      orbState = OrbState.standby;
+      notifyListeners();
+    }
+  }
+
+  //**************
+  // Korak 3: Uredi uporabnikovo sporočilo in na novo generiraj pogovor od te točke naprej *
+  //**************
+  Future<void> editAndResubmitUserMessage(
+    String messageId,
+    String updatedPrompt,
+  ) async {
+    final cleanText = updatedPrompt.trim();
+    if (cleanText.isEmpty) return;
+
+    if (isGenerating) {
+      stopGeneration();
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+    }
+
+    final idx = messages.indexWhere((m) => m.id == messageId);
+    if (idx == -1) return;
+
+    final previousPayloads =
+        List<AttachedFilePayload>.from(messages[idx].attachedPayloads);
+
+    messages.removeRange(idx, messages.length);
+
+    // Sinhroniziramo zgodovino sej s preostalimi sporočili
+    _sessionHistory.clear();
+    for (final m in messages) {
+      _sessionHistory.add(
+        ChatTurnRecord(
+          role: m.role,
+          content: m.content,
+          modelUsed: m.modelName,
+          attachedFiles: m.attachedFileNames,
+          timestamp: m.timestamp,
+          tokensPerSec: m.tokensPerSec,
+          generationDurationMs: m.generationDurationMs,
+        ),
+      );
+    }
+
+    if (previousPayloads.isNotEmpty) {
+      for (final p in previousPayloads) {
+        if (!pendingAttachments.any((a) => a.path == p.path)) {
+          pendingAttachments.add(p);
+        }
+      }
+    }
+
+    notifyListeners();
+    await executeUltronPrompt(cleanText);
+  }
+
+  //**************
+  // Korak 3: Odpri poljuben kodni blok iz klepeta neposredno v vgrajenem urejevalniku *
+  //**************
+  Future<String> openCodeSnippetInEditor({
+    required String code,
+    String language = 'txt',
+    String? suggestedPath,
+  }) async {
+    String? candidate = suggestedPath?.trim();
+
+    // Preverimo, ali prva vrstica vsebuje komentar s potjo (npr. // filepath: lib/foo.dart)
+    if (candidate == null || candidate.isEmpty) {
+      final firstEnd = code.indexOf('\n');
+      final firstLine =
+          (firstEnd == -1 ? code : code.substring(0, firstEnd)).trim();
+      final m = RegExp(
+        r'^(?://|#|--|/\*)\s*(?:filepath|file|path)\s*:\s*([A-Za-z0-9_.\-/\\]+)',
+        caseSensitive: false,
+      ).firstMatch(firstLine);
+      if (m != null) {
+        candidate = m.group(1)?.trim();
+      }
+    }
+
+    if (candidate != null && candidate.isNotEmpty) {
+      final resolved = hasActiveProject
+          ? workspaceService.resolveSafePath(candidate, mustStayInRoot: false)
+          : candidate;
+      if (resolved != null && File(resolved).existsSync()) {
+        await openFileInEditorTab(resolved);
+        return resolved;
+      }
+    }
+
+    // Ustvarimo delovni zavihek v ultron_memory/snippets za takojšnje urejanje
+    final extClean = language
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]'), '');
+    final ext = extClean.isEmpty ? 'txt' : extClean;
+    final snippetsDir = Directory(
+        '${Directory.current.path}${Platform.pathSeparator}ultron_memory${Platform.pathSeparator}snippets');
+    if (!await snippetsDir.exists()) {
+      await snippetsDir.create(recursive: true);
+    }
+    final fileName =
+        'izpisek_${DateTime.now().millisecondsSinceEpoch % 100000}.$ext';
+    final snippetFile =
+        File('${snippetsDir.path}${Platform.pathSeparator}$fileName');
+    await snippetFile.writeAsString(code);
+    await openFileInEditorTab(snippetFile.path);
+    return snippetFile.path;
+  }
+
+  //**************
+  // Korak 3: Shrani ULTRON izpisek v datoteko na disku ali v aktivni projekt *
+  //**************
+  Future<String?> saveAssistantOutputToFile({
+    required String content,
+    required String relativeOrFullPath,
+  }) async {
+    final trimmed = relativeOrFullPath.trim();
+    if (trimmed.isEmpty) return null;
+
+    try {
+      String fullPath;
+      final isAbs = File(trimmed).isAbsolute;
+      if (isAbs) {
+        fullPath = trimmed;
+      } else {
+        final baseDir =
+            hasActiveProject ? activeProjectPath : currentBrowserDirectory;
+        final sep = Platform.pathSeparator;
+        fullPath =
+            '$baseDir$sep${trimmed.replaceAll('/', sep).replaceAll('\\', sep)}';
+      }
+
+      final outFile = File(fullPath);
+      await outFile.parent.create(recursive: true);
+      await outFile.writeAsString(content);
+
+      if (hasActiveProject &&
+          MemoryLearningUsageService.normalizeProjectPath(fullPath).startsWith(
+              MemoryLearningUsageService.normalizeProjectPath(
+                  activeProjectPath))) {
+        await workspaceService.indexProjectFolder(activeProjectPath);
+        await refreshLocalGitStatus();
+      }
+      workspaceRevision++;
+      notifyListeners();
+      return outFile.path;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  //**************
+  // Korak 3: 1-klik pretvorba sporočila ali ULTRON izpiska v trajno pravilo (Learn Vault) *
+  //**************
+  Future<bool> learnFromMessageContent({
+    required String title,
+    required String contentOrRule,
+    required bool isGlobal,
+    required bool extractViaLlm,
+    String sourceLabel = 'izpisek klepeta',
+  }) async {
+    final targetProject = isGlobal ? '' : activeProjectPath;
+
+    if (!extractViaLlm || !isOllamaOnline) {
+      await memoryService.addManualRule(
+        title: title.trim().isEmpty ? 'Pravilo iz klepeta' : title.trim(),
+        rule: contentOrRule.trim(),
+        category: 'chat_rule',
+        projectPath: targetProject,
+        source: sourceLabel,
+        pinned: true,
+      );
+      notifyListeners();
+      return true;
+    }
+
+    final clipped = contentOrRule.length > 3500
+        ? contentOrRule.substring(0, 3500)
+        : contentOrRule;
+    final synthesisPrompt = '''
+Iz spodnjega sporočila izlušči 1 ali 2 jedrnati tehnični pravili oz. navodili, ki si jih mora ULTRON trajno zapomniti.
+Odgovori IZKLJUČNO v obliki:
+RULE|chat_rule|Kratek naslov|Jedrnato pravilo v enem stavku v slovenščini
+
+Sporočilo:
+$clipped
+''';
+
+    final raw = await _runOneShotLearnSynthesis(synthesisPrompt);
+    int added = 0;
+    if (raw != null && raw.trim().isNotEmpty) {
+      for (final line in raw.split('\n')) {
+        final t = line.trim();
+        if (!t.startsWith('RULE|')) continue;
+        final parts = t.split('|');
+        if (parts.length >= 4) {
+          final parsedTitle = parts[2].trim();
+          final parsedRule = parts.sublist(3).join('|').trim();
+          if (parsedRule.isNotEmpty) {
+            await memoryService.addManualRule(
+              title: parsedTitle.isEmpty ? title : parsedTitle,
+              rule: parsedRule,
+              category: parts[1].trim().isEmpty ? 'chat_rule' : parts[1].trim(),
+              projectPath: targetProject,
+              source: '$sourceLabel (LLM sinteza)',
+              pinned: true,
+            );
+            added++;
+          }
+        }
+      }
+    }
+
+    if (added == 0) {
+      // Varen fallback na neposredni zapis, če model ne vrne predpisane oblike
+      final fallbackRule = contentOrRule.length > 260
+          ? '${contentOrRule.substring(0, 260).replaceAll('\n', ' ')}...'
+          : contentOrRule.replaceAll('\n', ' ');
+      await memoryService.addManualRule(
+        title: title.trim().isEmpty ? 'Pravilo iz klepeta' : title.trim(),
+        rule: fallbackRule,
+        category: 'chat_rule',
+        projectPath: targetProject,
+        source: sourceLabel,
+        pinned: true,
+      );
+    }
+    notifyListeners();
+    return true;
+  }
+
+  void resetCenterStageToStandbyOrb() {
+    isOrbCompactTop = false;
+    currentPromptLabel = '';
+    currentCenterResponseText = '';
+    orbState = OrbState.standby;
+    notifyListeners();
+  }
+
+  void triggerErrorState(String clearReason) {
+    lastErrorBanner = clearReason;
+    statusBanner = 'ERROR // $clearReason';
+    orbState = OrbState.error;
+    Timer(const Duration(milliseconds: 1200), () {
+      orbState = OrbState.standby;
+      notifyListeners();
+    });
+    notifyListeners();
+  }
+
+  void _showToastBanner(String message) {
+    lastErrorBanner = null;
+    statusBanner = message;
+    notifyListeners();
   }
 
   Future<void> _loadRouterConfig() async {
@@ -430,8 +728,6 @@ class UltronBrainRouter extends ChangeNotifier {
         if (savedDir != null && Directory(savedDir).existsSync()) {
           currentBrowserDirectory = savedDir;
         }
-
-        // Privzeto brez odprte projektne mape ob zagonu za minimalno porabo RAM-a
         activeProjectPath = '';
         isWorkspaceModeEnabled = false;
       }
@@ -495,9 +791,6 @@ class UltronBrainRouter extends ChangeNotifier {
     notifyListeners();
   }
 
-  //**************
-  // Zazna vse korenske diske na računalniku (C:\, D:\ itd. na Windowsih ali / na Linuxu) *
-  //**************
   Future<void> refreshSystemRoots() async {
     final roots = <String>[];
     if (Platform.isWindows) {
@@ -532,9 +825,6 @@ class UltronBrainRouter extends ChangeNotifier {
     notifyListeners();
   }
 
-  //**************
-  // Nastavi in indeksira aktivno projektno mapo SAMO takrat, ko jo uporabnik izbere *
-  //**************
   Future<void> setActiveProjectFolder(
     String path, {
     bool syncBrowser = true,
@@ -546,8 +836,10 @@ class UltronBrainRouter extends ChangeNotifier {
     if (syncBrowser) {
       currentBrowserDirectory = activeProjectPath;
     }
-    notifyListeners();
 
+    await memoryService.ensureProjectRegistered(activeProjectPath);
+
+    notifyListeners();
     await workspaceService.indexProjectFolder(activeProjectPath);
     await refreshLocalGitStatus();
     workspaceRevision++;
@@ -568,6 +860,7 @@ class UltronBrainRouter extends ChangeNotifier {
   Future<void> rescanActiveProject() async {
     if (!hasActiveProject) return;
     await workspaceService.indexProjectFolder(activeProjectPath);
+    await refreshLocalGitStatus();
     workspaceRevision++;
     notifyListeners();
   }
@@ -604,6 +897,7 @@ class UltronBrainRouter extends ChangeNotifier {
       if (hasActiveProject && fullPath.startsWith(activeProjectPath)) {
         await workspaceService.indexProjectFolder(activeProjectPath);
       }
+      await refreshLocalGitStatus();
       workspaceRevision++;
       if (openInEditor) {
         await openFileInEditorTab(file.path);
@@ -695,17 +989,11 @@ class UltronBrainRouter extends ChangeNotifier {
     if (hasActiveProject) {
       await workspaceService.indexProjectFolder(activeProjectPath);
     }
+    await refreshLocalGitStatus();
     workspaceRevision++;
     notifyListeners();
   }
 
-  //**************
-  // Celovit skener računalnika za lokalne LLM modele (OHRANJENO 100%): *
-  // 1. Preveri aktivni Ollama API (/api/tags) *
-  // 2. Preveri ukazno vrstico (ollama list) *
-  // 3. Preišče manifeste na vseh diskih (npr. D:\OllamaModels in .ollama) *
-  // 4. Preveri morebitni lokalni LM Studio strežnik (vrata 1234) *
-  //**************
   Future<void> scanAllLocalLlms() async {
     if (isScanningModels) return;
     isScanningModels = true;
@@ -953,6 +1241,16 @@ class UltronBrainRouter extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setInputFocus(bool hasFocus) {
+    if (orbState == OrbState.thinking ||
+        orbState == OrbState.answering ||
+        orbState == OrbState.error) {
+      return;
+    }
+    orbState = hasFocus ? OrbState.listening : OrbState.standby;
+    notifyListeners();
+  }
+
   void notifyUserTyping() {
     if (!isGenerating && orbState != OrbState.listening) {
       orbState = OrbState.listening;
@@ -966,21 +1264,14 @@ class UltronBrainRouter extends ChangeNotifier {
     }
   }
 
-  //**************
-  // Univerzalni bralnik datotek vseh vrst *
-  //**************
   Future<bool> attachFileFromPath(String filePath) async {
     try {
       if (Directory(filePath).existsSync()) {
         return await attachFolderFromPath(filePath);
       }
-
       final file = File(filePath);
       if (!await file.exists()) return false;
-
-      if (pendingAttachments.any((a) => a.path == file.path)) {
-        return true;
-      }
+      if (pendingAttachments.any((a) => a.path == file.path)) return true;
 
       final stat = await file.stat();
       final name = _basename(file.path);
@@ -1291,6 +1582,11 @@ class UltronBrainRouter extends ChangeNotifier {
           : UltronPromptEffort.standardTask;
     }
 
+    // Če uporabnik uporabi @omembo datoteke, vključimo globoko projektno branje
+    if (hasActiveProject && userPrompt.contains('@')) {
+      return UltronPromptEffort.deepWorkspace;
+    }
+
     final clean = userPrompt.trim().toLowerCase();
     const greetings = {
       'hej',
@@ -1334,13 +1630,104 @@ class UltronBrainRouter extends ChangeNotifier {
     return UltronPromptEffort.standardTask;
   }
 
+  void _appendSystemFeedbackMessage(String title, String body) {
+    messages.add(
+      ChatMessageItem(
+        id: 'sys_${DateTime.now().microsecondsSinceEpoch}',
+        role: 'assistant',
+        content: '**$title**\n$body',
+        modelName: 'ULTRON Sistem',
+        timestamp: DateTime.now(),
+      ),
+    );
+    notifyListeners();
+  }
+
   //**************
-  // Glavna metoda za pošiljanje sporočila s prilagodljivim nivojem razmišljanja in rabe RAM-a *
+  // Glavna metoda za pošiljanje sporočila z merjenjem časa in tok/s *
   //**************
   Future<void> executeUltronPrompt(String rawPrompt) async {
     final trimmed = rawPrompt.trim();
     if (trimmed.isEmpty && pendingAttachments.isEmpty) return;
     if (isGenerating) return;
+
+    isOrbCompactTop = true;
+    currentPromptLabel = trimmed;
+
+    if (trimmed.toLowerCase() == '/learn status') {
+      final summary = memoryService.getLearnStatusSummary();
+      currentCenterResponseText = summary;
+      _appendSystemFeedbackMessage('Learn Vault Status', summary);
+      return;
+    }
+
+    if (trimmed.toLowerCase() == '/learn reset') {
+      await memoryService.resetLearnedNotes();
+      currentCenterResponseText = 'Naučena pravila so bila ponastavljena.';
+      _appendSystemFeedbackMessage(
+          'Learn Vault', 'Vsa naučena pravila so bila ponastavljena.');
+      return;
+    }
+
+    if (trimmed.toLowerCase() == '/learn') {
+      final count = await triggerLearnPass();
+      _appendSystemFeedbackMessage(
+        'Learn analiza zaključena',
+        count > 0
+            ? 'Izluščenih **$count** novih pravil v `Learn Vault`.'
+            : 'Znanje posodobljeno (${memoryService.learnedEntries.length} pravil).',
+      );
+      return;
+    }
+
+    if (trimmed.toLowerCase() == '/pull') {
+      final ok = await pullCurrentGitWorkspace();
+      _appendSystemFeedbackMessage(
+        ok ? 'Git Pull uspešen' : 'Git Pull ni uspel',
+        '```text\n$lastGitActionSummary\n```',
+      );
+      return;
+    }
+
+    if (trimmed.toLowerCase().startsWith('/commit')) {
+      final msg = trimmed.length > 7
+          ? trimmed.substring(7).trim()
+          : 'feat: posodobitev prek ULTRON';
+      final ok = await commitCurrentGitWorkspace(msg, pushAfter: false);
+      _appendSystemFeedbackMessage(
+        ok ? 'Git Commit uspešen' : 'Git Commit opozorilo',
+        '```text\n$lastGitActionSummary\n```',
+      );
+      return;
+    }
+
+    if (trimmed.toLowerCase() == '/push') {
+      final ok = await pushCurrentGitWorkspace();
+      _appendSystemFeedbackMessage(
+        ok ? 'Git Push uspešen' : 'Git Push ni uspel',
+        '```text\n$lastGitActionSummary\n```',
+      );
+      return;
+    }
+
+    if (memoryService.isDoneTriggerPhrase(trimmed)) {
+      if (_sessionHistory.isNotEmpty) {
+        if (currentChatSessionId.isEmpty) {
+          currentChatSessionId =
+              'session_${DateTime.now().millisecondsSinceEpoch}';
+        }
+        final archive = await memoryService.saveChatSessionToDisk(
+          sessionId: currentChatSessionId,
+          turns: _sessionHistory,
+          projectPath: hasActiveProject ? activeProjectPath : '',
+          projectName: hasActiveProject ? activeProjectName : '',
+        );
+        currentCenterResponseText =
+            'Seja shranjena: ${archive?.title ?? currentChatSessionId}';
+      }
+      startNewChatSession();
+      return;
+    }
 
     final attachmentsSnapshot =
         List<AttachedFilePayload>.from(pendingAttachments);
@@ -1359,6 +1746,7 @@ class UltronBrainRouter extends ChangeNotifier {
         content: userDisplay,
         modelName: 'Uporabnik',
         attachedFileNames: attachmentsSnapshot.map((a) => a.name).toList(),
+        attachedPayloads: attachmentsSnapshot,
         timestamp: DateTime.now(),
       ),
     );
@@ -1446,7 +1834,10 @@ class UltronBrainRouter extends ChangeNotifier {
 
     final learnedContext = effort == UltronPromptEffort.casualFast
         ? ''
-        : memoryService.buildLearnedSystemContext(userDisplay);
+        : memoryService.buildLearnedSystemContext(
+            userDisplay,
+            activeProjectPath: activeProjectPath,
+          );
     final pluginContext = effort == UltronPromptEffort.casualFast
         ? ''
         : pluginService.buildLazyLoadedPluginContext();
@@ -1506,6 +1897,8 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
       'content': fullUserContext.toString(),
       if (imagesBase64.isNotEmpty) 'images': imagesBase64,
     });
+
+    final turnStopwatch = Stopwatch()..start();
 
     try {
       final alreadyReadTargets = <String>{};
@@ -1593,7 +1986,19 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
         notifyListeners();
       }
 
+      turnStopwatch.stop();
+      assistantMsg.generationDurationMs = turnStopwatch.elapsedMilliseconds;
+      if (memoryService.liveTokensPerSecond > 0) {
+        assistantMsg.tokensPerSec = memoryService.liveTokensPerSecond;
+      } else if (assistantMsg.generationDurationMs > 0 &&
+          assistantMsg.content.isNotEmpty) {
+        final approxTok = (assistantMsg.content.length / 4.0);
+        assistantMsg.tokensPerSec =
+            approxTok / (assistantMsg.generationDurationMs / 1000.0);
+      }
+
       assistantMsg.networkDone.value = true;
+      currentCenterResponseText = assistantMsg.content;
 
       _sessionHistory.add(
         ChatTurnRecord(
@@ -1601,10 +2006,22 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
           content: assistantMsg.content,
           modelUsed: activeLocalModel,
           timestamp: DateTime.now(),
+          tokensPerSec: assistantMsg.tokensPerSec,
+          generationDurationMs: assistantMsg.generationDurationMs,
         ),
       );
 
-      await memoryService.saveConversationToDisk(_sessionHistory);
+      if (currentChatSessionId.isEmpty) {
+        currentChatSessionId =
+            'session_${DateTime.now().millisecondsSinceEpoch}';
+      }
+
+      await memoryService.saveChatSessionToDisk(
+        sessionId: currentChatSessionId,
+        turns: _sessionHistory,
+        projectPath: hasActiveProject ? activeProjectPath : '',
+        projectName: hasActiveProject ? activeProjectName : '',
+      );
 
       if (memoryService.autoLearnEnabled &&
           effort != UltronPromptEffort.casualFast &&
@@ -1614,6 +2031,8 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
 
       orbState = OrbState.standby;
     } catch (e) {
+      turnStopwatch.stop();
+      assistantMsg.generationDurationMs = turnStopwatch.elapsedMilliseconds;
       orbState = OrbState.error;
       final fallbackText = assistantMsg.content.isEmpty
           ? 'Povezava z lokalnim modelom "$activeLocalModel" ni uspela ($e).\nPreveri, ali Ollama teče na $ollamaBaseUrl ali v nastavitvah klikni "Zaženi Ollama strežnik".'
@@ -1621,6 +2040,7 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
       assistantMsg.content = fallbackText;
       assistantMsg.liveTargetText.value = fallbackText;
       assistantMsg.networkDone.value = true;
+      currentCenterResponseText = fallbackText;
     } finally {
       assistantMsg.networkDone.value = true;
       _activeStreamClient = null;
@@ -1629,6 +2049,32 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
       liveAgentStatus = '';
       notifyListeners();
     }
+  }
+
+  Future<void> triggerTargetedLearn({
+    required List<String> filePaths,
+    required String instruction,
+    bool isGlobal = false,
+  }) async {
+    final prevOrb = orbState;
+    orbState = OrbState.thinking;
+    liveAgentStatus = 'Ciljno učenje: analiziram datoteke...';
+    notifyListeners();
+
+    final count = await memoryService.runTargetedLearnPass(
+      targetFilePaths: filePaths,
+      instruction: instruction,
+      currentProjectPath: activeProjectPath,
+      isGlobal: isGlobal,
+      llmExtractor: _runOneShotLearnSynthesis,
+    );
+
+    orbState = prevOrb;
+    liveAgentStatus = '';
+    _showToastBanner(count > 0
+        ? 'Ciljno učenje uspešno! (+$count pravil)'
+        : 'Ciljno učenje končano.');
+    notifyListeners();
   }
 
   Future<void> _processWorkspaceMutations({
@@ -1734,6 +2180,7 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
   }
 
   void clearConversation() {
+    currentChatSessionId = '';
     messages.clear();
     _sessionHistory.clear();
     orbState = OrbState.standby;
@@ -1805,6 +2252,7 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
 
           if (typingMode == UltronTypingMode.adaptiveSmooth) {
             targetMsg.liveTargetText.value = preview;
+            currentCenterResponseText = preview;
           }
         }
       }
@@ -1816,6 +2264,9 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
           evalCount: evalCount,
           evalDurationNs: evalDuration,
         );
+        if (evalDuration > 0 && evalCount > 0) {
+          targetMsg.tokensPerSec = evalCount / (evalDuration / 1e9);
+        }
       }
     }
 
@@ -1827,6 +2278,7 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
     targetMsg.bufferedCharsCount.value = finalPreview.length;
     if (typingMode == UltronTypingMode.adaptiveSmooth) {
       targetMsg.liveTargetText.value = finalPreview;
+      currentCenterResponseText = finalPreview;
     }
 
     return finalRaw;
@@ -1847,7 +2299,7 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
         .toList();
 
     final req = await client
-        .postUrl(Uri.parse('[http://127.0.0.1:1234/v1/chat/completions](http://127.0.0.1:1234/v1/chat/completions)'));
+        .postUrl(Uri.parse('http://127.0.0.1:1234/v1/chat/completions'));
     req.headers.contentType = ContentType.json;
     req.add(utf8.encode(jsonEncode({
       'model': modelId,
@@ -1872,6 +2324,7 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
       targetMsg.content = preview;
       targetMsg.bufferedCharsCount.value = preview.length;
       targetMsg.liveTargetText.value = preview;
+      currentCenterResponseText = preview;
     }
     return rawText;
   }
@@ -1936,9 +2389,6 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
     return count;
   }
 
-  //**************
-  // Metode za vgrajeni VS Code kirurški urejevalnik kode *
-  //**************
   void toggleVsCodeWindow() {
     isVsCodeWindowOpen = !isVsCodeWindowOpen;
     notifyListeners();
@@ -2112,9 +2562,6 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
     } catch (_) {}
   }
 
-  //**************
-  // Napredni sistem za prijavo v GitHub (System CLI/Git, Device Flow in PAT žeton) *
-  //**************
   Future<bool> connectGithubWithToken(
     String token, {
     bool silentRefresh = false,
@@ -2154,8 +2601,7 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
             as Map<String, dynamic>;
         githubToken = cleaned;
         githubUsername = data['login']?.toString() ?? 'GitHub User';
-        githubDisplayName =
-            data['name']?.toString() ?? githubUsername;
+        githubDisplayName = data['name']?.toString() ?? githubUsername;
         githubAvatarUrl = data['avatar_url']?.toString() ?? '';
         githubBio = data['bio']?.toString() ?? '';
         githubPublicReposCount =
@@ -2193,18 +2639,15 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
     }
   }
 
-  //**************
-  // 1-Klik prijava prek obstoječe sistemske Git seje (GitHub CLI ali Git Credential Manager) *
-  //**************
   Future<bool> connectGithubFromSystemCredentials() async {
     if (isGithubAuthenticating) return false;
     isGithubAuthenticating = true;
     githubAuthError = '';
-    githubAuthStatus = 'Iščem lokalno GitHub sejo (gh CLI / Git Credential Manager)...';
+    githubAuthStatus =
+        'Iščem lokalno GitHub sejo (gh CLI / Git Credential Manager)...';
     notifyListeners();
 
     try {
-      // 1. Preverimo GitHub CLI (`gh auth token`), če je nameščen
       try {
         final ghRes = await Process.run(
           'gh',
@@ -2220,8 +2663,6 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
         }
       } catch (_) {}
 
-      // 2. Uporabimo Git Credential Manager (`git credential fill`), ki na Windows/Linux
-      // samodejno vrne shranjen žeton iz VS Code/Gita ali odpre prijavno okno brskalnika
       githubAuthStatus =
           'Preverjam Git Credential Manager (po potrebi potrdi v brskalniku)...';
       notifyListeners();
@@ -2272,9 +2713,6 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
     }
   }
 
-  //**************
-  // Uradni GitHub OAuth Device Flow (RFC 8628): generira 8-mestno kodo in čaka na potrditev *
-  //**************
   Future<void> startGithubDeviceFlow({String? customClientId}) async {
     final effectiveId = (customClientId ?? githubOAuthClientId).trim();
     if (effectiveId.isEmpty) {
@@ -2312,7 +2750,7 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
       final deviceCode = data['device_code']?.toString() ?? '';
       final userCode = data['user_code']?.toString() ?? '';
       final verifyUri = data['verification_uri']?.toString() ??
-          '[https://github.com/login/device](https://github.com/login/device)';
+          'https://github.com/login/device';
       int intervalSec = (data['interval'] as num?)?.toInt() ?? 5;
       final expiresIn = (data['expires_in'] as num?)?.toInt() ?? 900;
 
@@ -2370,7 +2808,8 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
           if (err == 'slow_down') {
             intervalSec += 5;
           } else if (err == 'access_denied' || err == 'expired_token') {
-            githubAuthError = 'Prijava v brskalniku je bila preklicana ali je potekla.';
+            githubAuthError =
+                'Prijava v brskalniku je bila preklicana ali je potekla.';
             break;
           }
         } catch (_) {
@@ -2403,7 +2842,7 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
 
   Future<void> openGithubQuickTokenCreator() async {
     await openWebUrl(
-      '[https://github.com/settings/tokens/new?description=ULTRON+Desktop+Studio&scopes=repo,read:user](https://github.com/settings/tokens/new?description=ULTRON+Desktop+Studio&scopes=repo,read:user)',
+      'https://github.com/settings/tokens/new?description=ULTRON+Desktop+Studio&scopes=repo,read:user',
     );
   }
 
@@ -2477,10 +2916,6 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
     }
   }
 
-  //**************
-  // Klonira izbrani GitHub repozitorij (z avtentikacijo za zasebne projekte) *
-  // in ga po želji takoj odpre kot aktivni projekt v ULTRON-u *
-  //**************
   Future<String?> cloneRepoAndOpenInUltron(
     GitHubRepoEntry repo, {
     bool openAsActiveProject = true,
@@ -2494,7 +2929,6 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
           '$currentBrowserDirectory${Platform.pathSeparator}${repo.name}');
 
       if (await targetDir.exists()) {
-        // Če mapa že obstaja na disku, jo osvežimo z git pull in odpremo
         await Process.run(
           'git',
           ['pull'],
@@ -2510,9 +2944,9 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
       String effectiveCloneUrl = repo.cloneUrl;
       if (repo.isPrivate &&
           githubToken.isNotEmpty &&
-          effectiveCloneUrl.startsWith('[https://github.com/](https://github.com/)')) {
+          effectiveCloneUrl.startsWith('https://github.com/')) {
         effectiveCloneUrl = effectiveCloneUrl.replaceFirst(
-          '[https://github.com/](https://github.com/)',
+          'https://github.com/',
           'https://x-access-token:$githubToken@github.com/',
         );
       }
@@ -2525,7 +2959,6 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
       );
 
       if (res.exitCode == 0 && await targetDir.exists()) {
-        // Po kloniranju povrnemo čisti remote URL brez vdelanega žetona v .git/config
         if (effectiveCloneUrl != repo.cloneUrl) {
           await Process.run(
             'git',
@@ -2568,14 +3001,16 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
   }
 
   //**************
-  // Preveri lokalni Git status (aktivna veja in število spremenjenih datotek) *
+  // Preveri lokalni Git status (veja, ahead/behind in spremenjene datoteke) *
   //**************
   Future<void> refreshLocalGitStatus() async {
-    final targetDir =
-        hasActiveProject ? activeProjectPath : currentBrowserDirectory;
+    final targetDir = effectiveGitDirectory;
     if (targetDir.trim().isEmpty || !Directory(targetDir).existsSync()) {
       localGitBranch = '';
       localGitChangedCount = 0;
+      localGitAheadCount = 0;
+      localGitBehindCount = 0;
+      localGitChangedFiles.clear();
       return;
     }
 
@@ -2590,6 +3025,9 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
       if (branchRes.exitCode != 0) {
         localGitBranch = '';
         localGitChangedCount = 0;
+        localGitAheadCount = 0;
+        localGitBehindCount = 0;
+        localGitChangedFiles.clear();
         notifyListeners();
         return;
       }
@@ -2598,28 +3036,57 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
 
       final statusRes = await Process.run(
         'git',
-        ['status', '--porcelain'],
+        ['status', '--porcelain', '-b'],
         workingDirectory: targetDir,
         runInShell: true,
       ).timeout(const Duration(seconds: 2));
 
       if (statusRes.exitCode == 0) {
-        localGitChangedCount = statusRes.stdout
+        final lines = statusRes.stdout
             .toString()
             .split('\n')
+            .map((l) => l.trimRight())
             .where((l) => l.trim().isNotEmpty)
-            .length;
+            .toList();
+
+        int ahead = 0;
+        int behind = 0;
+        final changed = <String>[];
+
+        for (final line in lines) {
+          if (line.startsWith('##')) {
+            final aheadMatch = RegExp(r'ahead\s+(\d+)').firstMatch(line);
+            final behindMatch = RegExp(r'behind\s+(\d+)').firstMatch(line);
+            if (aheadMatch != null) {
+              ahead = int.tryParse(aheadMatch.group(1)!) ?? 0;
+            }
+            if (behindMatch != null) {
+              behind = int.tryParse(behindMatch.group(1)!) ?? 0;
+            }
+          } else {
+            changed.add(line);
+          }
+        }
+
+        localGitAheadCount = ahead;
+        localGitBehindCount = behind;
+        localGitChangedFiles
+          ..clear()
+          ..addAll(changed);
+        localGitChangedCount = changed.length;
       }
       notifyListeners();
     } catch (_) {
       localGitBranch = '';
       localGitChangedCount = 0;
+      localGitAheadCount = 0;
+      localGitBehindCount = 0;
+      localGitChangedFiles.clear();
     }
   }
 
   Future<bool> pullCurrentGitWorkspace() async {
-    final targetDir =
-        hasActiveProject ? activeProjectPath : currentBrowserDirectory;
+    final targetDir = effectiveGitDirectory;
     if (targetDir.trim().isEmpty) return false;
 
     isSyncingLocalGit = true;
@@ -2630,7 +3097,10 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
         ['pull'],
         workingDirectory: targetDir,
         runInShell: true,
-      ).timeout(const Duration(seconds: 25));
+      ).timeout(const Duration(seconds: 30));
+
+      final out = '${res.stdout}\n${res.stderr}'.trim();
+      lastGitActionSummary = out.isEmpty ? 'Že posodobljeno (up to date).' : out;
 
       if (hasActiveProject) {
         await workspaceService.indexProjectFolder(activeProjectPath);
@@ -2638,7 +3108,98 @@ Oznaki <ultron_mkdir> in <ultron_write> uporabi SAMO takrat, ko uporabnik želi 
       await refreshLocalGitStatus();
       workspaceRevision++;
       return res.exitCode == 0;
-    } catch (_) {
+    } catch (e) {
+      lastGitActionSummary = 'Git pull napaka: $e';
+      return false;
+    } finally {
+      isSyncingLocalGit = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> commitCurrentGitWorkspace(
+    String commitMessage, {
+    bool pushAfter = false,
+  }) async {
+    final targetDir = effectiveGitDirectory;
+    if (targetDir.trim().isEmpty) return false;
+    final msg = commitMessage.trim().isEmpty
+        ? 'feat: posodobitev prek ULTRON'
+        : commitMessage.trim();
+
+    isSyncingLocalGit = true;
+    notifyListeners();
+    try {
+      await Process.run(
+        'git',
+        ['add', '-A'],
+        workingDirectory: targetDir,
+        runInShell: true,
+      ).timeout(const Duration(seconds: 15));
+
+      final commitRes = await Process.run(
+        'git',
+        ['commit', '-m', msg],
+        workingDirectory: targetDir,
+        runInShell: true,
+      ).timeout(const Duration(seconds: 20));
+
+      final commitOut = '${commitRes.stdout}\n${commitRes.stderr}'.trim();
+      lastGitActionSummary = commitOut;
+
+      bool ok = commitRes.exitCode == 0;
+
+      if (pushAfter && ok) {
+        isSyncingLocalGit = false;
+        final pushOk = await pushCurrentGitWorkspace();
+        lastGitActionSummary = '$commitOut\n$lastGitActionSummary'.trim();
+        return pushOk;
+      }
+
+      await refreshLocalGitStatus();
+      return ok;
+    } catch (e) {
+      lastGitActionSummary = 'Git commit napaka: $e';
+      return false;
+    } finally {
+      isSyncingLocalGit = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> pushCurrentGitWorkspace() async {
+    final targetDir = effectiveGitDirectory;
+    if (targetDir.trim().isEmpty) return false;
+
+    isSyncingLocalGit = true;
+    notifyListeners();
+    try {
+      var res = await Process.run(
+        'git',
+        ['push'],
+        workingDirectory: targetDir,
+        runInShell: true,
+      ).timeout(const Duration(seconds: 35));
+
+      var out = '${res.stdout}\n${res.stderr}'.trim();
+
+      if (res.exitCode != 0 &&
+          localGitBranch.isNotEmpty &&
+          out.toLowerCase().contains('upstream')) {
+        res = await Process.run(
+          'git',
+          ['push', '-u', 'origin', localGitBranch],
+          workingDirectory: targetDir,
+          runInShell: true,
+        ).timeout(const Duration(seconds: 35));
+        out = '${res.stdout}\n${res.stderr}'.trim();
+      }
+
+      lastGitActionSummary = out.isEmpty ? 'Git Push uspešno izveden.' : out;
+      await refreshLocalGitStatus();
+      return res.exitCode == 0;
+    } catch (e) {
+      lastGitActionSummary = 'Git push napaka: $e';
       return false;
     } finally {
       isSyncingLocalGit = false;
